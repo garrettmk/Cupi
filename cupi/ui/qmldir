@@ -1,0 +1,22 @@
+module cupi.ui
+singleton Theme 1.0 Theme.qml
+Text 1.0 Text.qml
+Panel 1.0 Panel.qml
+Button 1.0 Button.qml
+SmallButton 1.0 SmallButton.qml
+ButtonStyle 1.0 ButtonStyle.qml
+TextField 1.0 TextField.qml
+TextArea 1.0 TextArea.qml
+CheckBox 1.0 CheckBox.qml
+RadioButton 1.0 RadioButton.qml
+SpinBox 1.0 SpinBox.qml
+PercentBox 1.0 PercentBox.qml
+PriceBox 1.0 PriceBox.qml
+ComboBox 1.0 ComboBox.qml
+TagEditor 1.0 TagEditor.qml
+TabView 1.0 TabView.qml
+TabHeaderList 1.0 TabHeaderList.qml
+ToolBar 1.0 ToolBar.qml
+StatusBar 1.0 StatusBar.qml
+Dialog 1.0 Dialog.qml
+ThemeEditor 1.0 ThemeEditor.qml
