@@ -1,16 +1,16 @@
 import QtQuick 2.7
 import QtQuick.Controls 1.4
 import QtQuick.Controls.Styles 1.4
-import "." as Themed
+import "." as QP
 
 ComboBox {
     style: ComboBoxStyle {
         id: style
 
         property real borderAlpha: control.hovered || control.activeFocus ? 1 : 0.5
-        Behavior on borderAlpha {NumberAnimation {duration: Themed.Theme.durationShort; easing.type: Themed.Theme.fadeEasingType}}
+        Behavior on borderAlpha {NumberAnimation {duration: QP.Theme.durationShort; easing.type: QP.Theme.fadeEasingType}}
 
-        label: Themed.Text {
+        label: QP.Text {
             text: control.currentText
             font.bold: true
             clip: true
@@ -27,14 +27,15 @@ ComboBox {
                 anchors.bottom: parent.bottom
                 anchors.left: parent.left
                 anchors.right: parent.right
-                color: Themed.Theme.borderColor
+                color: QP.Theme.borderColor
                 opacity: borderAlpha
-                height: Themed.Theme.borderWidthSmall
-                radius: Themed.Theme.radiusSmall
+                height: QP.Theme.borderWidthSmall
+                radius: QP.Theme.radiusSmall
             }
 
             // Side button
             Item {
+                visible: control.enabled
                 anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
@@ -50,7 +51,7 @@ ComboBox {
 
                     Rectangle {
                         rotation: 45
-                        color: Themed.Theme.borderColor
+                        color: QP.Theme.borderColor
                         opacity: borderAlpha
                         width: Math.round(parent.width / Math.sqrt(2))
                         height: width
@@ -71,7 +72,7 @@ ComboBox {
 
                     Rectangle {
                         rotation: 45
-                        color: Themed.Theme.borderColor
+                        color: QP.Theme.borderColor
                         opacity: borderAlpha
                         width: Math.round(parent.width / Math.sqrt(2))
                         height: width

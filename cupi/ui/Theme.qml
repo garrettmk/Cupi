@@ -71,6 +71,9 @@ QtObject {
     property int defaultEasingType:     Easing.InOutCubic
     property int fadeEasingType:        Easing.OutQuad
 
+    property int toolButtonSizeSmall:   16
+    property int toolButtonSizeMid:     32
+
     // Helper functions
     function borderWithAlpha(alpha) {
         return Qt.rgba(borderColor.r, borderColor.g, borderColor.b, alpha)
@@ -114,5 +117,7 @@ QtObject {
         property alias defaultEasingType: theme.defaultEasingType
         property alias fadeEasingType: theme.fadeEasingType
 
+        property alias toolButtonSizeSmall: theme.toolButtonSizeSmall
+        property alias toolButtonSizeMid: theme.toolButtonSizeMid
     }
 }

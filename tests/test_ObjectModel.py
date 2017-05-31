@@ -1,4 +1,5 @@
 import PyQt5.QtCore as qtcore
+import bson
 
 from unittest import main
 from unittest.mock import Mock
@@ -13,7 +14,7 @@ class TestObjectModel(TestCase):
 
     def setUp(self):
         self.model = ObjectModel(_type=GenericObject,
-                                 objects=[GenericObject(index=i) for i in range(TOTAL_ELEMENTS)],
+                                 objects=[GenericObject({'p1': random_string(), 'index': i}) for i in range(TOTAL_ELEMENTS)],
                                  listen=True,
                                  parent=None)
 
@@ -280,7 +281,7 @@ class TestObjectModel(TestCase):
         self.assertEqual(TOTAL_ELEMENTS, self.model.rowCount())
 
     def test_columnCount(self):
-        self.assertEqual(4, self.model.columnCount())
+        self.assertEqual(6, self.model.columnCount())
 
     def test_data(self):
         var = self.model.data(qtcore.QModelIndex(), qtcore.Qt.DisplayRole)
@@ -291,25 +292,27 @@ class TestObjectModel(TestCase):
             index = self.model.createIndex(i, 0)
             self.assertTrue(index.isValid())
 
-            self.assertEqual(False, self.model.data(index, qtcore.Qt.UserRole + 1))         # modified property
-            self.assertEqual('property 1', self.model.data(index, qtcore.Qt.UserRole + 2))
-            self.assertEqual('property 2', self.model.data(index, qtcore.Qt.UserRole + 3))
-            self.assertEqual('property 3', self.model.data(index, qtcore.Qt.UserRole + 4))
+            prop_to_role = {p: r for r, p in self.model._role_to_prop.items()}
+
+            self.assertEqual(False, self.model.data(index, prop_to_role['modified']))         # modified property
+            self.assertEqual(self.model[i].p1, self.model.data(index, prop_to_role['p1']))
+            self.assertEqual(self.model[i].p2, self.model.data(index, prop_to_role['p2']))
+            self.assertEqual(self.model[i].p3, self.model.data(index, prop_to_role['p3']))
 
         for i in range(TEST_SIZE):
-            for j in range(1, 4):
+            for j in range(3, 6):
                 index = self.model.createIndex(i, j)
                 self.assertTrue(index.isValid())
 
-                self.assertEqual('property %s' % j, self.model.data(index, qtcore.Qt.DisplayRole))
+                self.assertEqual(getattr(self.model[i], 'p%s' % (j-2)), self.model.data(index, qtcore.Qt.DisplayRole))
 
     def test_roleNames(self):
         roles = self.model.roleNames()
 
-        self.assertEqual('modified'.encode(), roles[qtcore.Qt.UserRole + 1])
-        self.assertEqual('p1'.encode(), roles[qtcore.Qt.UserRole + 2])
-        self.assertEqual('p2'.encode(), roles[qtcore.Qt.UserRole + 3])
-        self.assertEqual('p3'.encode(), roles[qtcore.Qt.UserRole + 4])
+        self.assertEqual('modified'.encode(), roles[qtcore.Qt.UserRole + 2])
+        self.assertEqual('p1'.encode(), roles[qtcore.Qt.UserRole + 3])
+        self.assertEqual('p2'.encode(), roles[qtcore.Qt.UserRole + 4])
+        self.assertEqual('p3'.encode(), roles[qtcore.Qt.UserRole + 5])
 
     def test_setColumns(self):
         self.model.setColumns()
@@ -323,8 +326,8 @@ class TestObjectModel(TestCase):
 
     def test_fieldIndex(self):
         self.assertEqual(-1, self.model.fieldIndex('unknown'))
-        self.assertEqual(0, self.model.fieldIndex('modified'))
-        self.assertEqual(1, self.model.fieldIndex('p1'))
+        self.assertEqual(2, self.model.fieldIndex('modified'))
+        self.assertEqual(3, self.model.fieldIndex('p1'))
 
         self.model.setColumns('p3', 'modified')
         self.assertEqual(-1, self.model.fieldIndex('p1'))
@@ -353,23 +356,37 @@ class TestObjectModel(TestCase):
 
         def check_emit_parameters2(topleft, bottomright, roles):
             self.assertEqual(0, topleft.row())
-            self.assertEqual(1, topleft.column())
+            self.assertEqual(3, topleft.column())
             self.assertEqual(0, bottomright.row())
-            self.assertEqual(1, bottomright.column())
-            self.assertEqual([qtcore.Qt.UserRole + 2], roles)
+            self.assertEqual(3, bottomright.column())
+            self.assertEqual([qtcore.Qt.UserRole + 3], roles)
 
         def check_emit_parameters1(topleft, bottomright, roles):
             self.assertEqual(0, topleft.row())
-            self.assertEqual(0, topleft.column())
+            self.assertEqual(2, topleft.column())
             self.assertEqual(0, bottomright.row())
-            self.assertEqual(0, bottomright.column())
-            self.assertEqual([qtcore.Qt.UserRole + 1], roles)
+            self.assertEqual(2, bottomright.column())
+            self.assertEqual([qtcore.Qt.UserRole + 2], roles)
             self.model.dataChanged.emit = check_emit_parameters2
 
         self.model.dataChanged.emit = check_emit_parameters1
 
         self.model[0].p1 = 'consult the book of armaments!'
 
+    def test_matchOne(self):
+        for prop in ['p1', 'p2', 'p3']:
+            oid = bson.ObjectId()
+            obj = GenericObject()
+            setattr(obj, prop, str(oid))
+            idx = random_idx()
+            self.model.insert(idx, obj)
+
+            i = self.model.matchOne(prop, str(oid))
+            self.assertEqual(i, idx)
+
+        oid = bson.ObjectId()
+        i = self.model.matchOne('p1', str(oid))
+        self.assertEqual(i, -1)
 
 if __name__ == '__main__':
     main()

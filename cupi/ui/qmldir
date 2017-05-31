@@ -1,9 +1,12 @@
 module cupi.ui
 singleton Theme 1.0 Theme.qml
 Text 1.0 Text.qml
+BasePanel 1.0 BasePanel.qml
 Panel 1.0 Panel.qml
+TitleEditPanel 1.0 TitleEditPanel.qml
 Button 1.0 Button.qml
 SmallButton 1.0 SmallButton.qml
+SmallToolButton 1.0 SmallToolButton.qml
 ButtonStyle 1.0 ButtonStyle.qml
 TextField 1.0 TextField.qml
 TextArea 1.0 TextArea.qml

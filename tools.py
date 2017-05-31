@@ -8,9 +8,9 @@ from unittest import TestCase
 
 from PyQt5.QtCore import pyqtSignal
 
-from cupi import ListObject, MapObject, MapProperty
+from cupi import ListObject, MapObject, Property, MongoObjectReference
 
-TOTAL_ELEMENTS = 10000
+TOTAL_ELEMENTS = 1000
 TEST_SIZE = 500
 
 
@@ -18,13 +18,17 @@ class GenericObject(MapObject):
     __collection__ = 'generic_collection'
 
     p1Changed = pyqtSignal()
-    p1 = MapProperty(str, 'p1', default_set='property 1', notify=p1Changed)
+    p1 = Property(str, 'p1', default_set='property 1', notify=p1Changed)
 
     p2Changed = pyqtSignal()
-    p2 = MapProperty(str, 'p2', default_set='property 2', notify=p2Changed)
+    p2 = Property(str, 'p2', default_set='property 2', notify=p2Changed)
 
     p3Changed = pyqtSignal()
-    p3 = MapProperty(str, 'p3', default_set='property 3', notify=p3Changed)
+    p3 = Property(str, 'p3', default_set='property 3', notify=p3Changed)
+
+
+class GenericObjectReference(MongoObjectReference):
+    referencedType = GenericObject
 
 
 class ProfilingTestCase(TestCase):

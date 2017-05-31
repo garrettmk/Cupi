@@ -9,8 +9,10 @@ Window {
     id: root
     flags: Qt.Window
     color: QP.Theme.backgroundColor
-    width: contentItem.children.length === 1 ? contentItem.children[0].implicitWidth : contentItem.childrenRect.width
-    height: contentItem.children.length === 1 ? contentItem.children[0].implicitHeight : contentItem.childrenRect.height
+    //width: contentItem.children.length === 1 ? contentItem.children[0].implicitWidth : contentItem.childrenRect.width
+    //height: contentItem.children.length === 1 ? contentItem.children[0].implicitHeight : contentItem.childrenRect.height
+    width: panel.implicitWidth
+    height: panel.implicitHeight + 2 * QP.Theme.spacingBig
 
     // Properties
     default property alias panelContent: panel.data
@@ -22,13 +24,13 @@ Window {
 
     // Methods
     function accept() {
-        accepted()
         close()
+        accepted()
     }
 
     function reject() {
-        rejected()
         close()
+        rejected()
     }
 
     Component.onCompleted: {
@@ -45,6 +47,7 @@ Window {
         border.width: QP.Theme.borderWidthBig
         anchors.fill: parent
         titlePointSize: QP.Theme.textPointSizeBig
+        borderMargin: 2 * QP.Theme.spacingBig
 
         // Dialog content goes here
 

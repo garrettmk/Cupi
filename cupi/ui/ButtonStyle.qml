@@ -20,8 +20,8 @@ ButtonStyle {
         radius: root.radius
         border.color: Qt.rgba(QP.Theme.borderColor.r, QP.Theme.borderColor.g, QP.Theme.borderColor.b, borderAlpha)
         border.width: QP.Theme.borderWidthSmall
-        implicitWidth: root.defaultWidth
-        implicitHeight: root.defaultHeight
+        implicitWidth: backgroundImage.status === Image.Ready ? backgroundImage.implicitWidth : root.defaultWidth
+        implicitHeight: backgroundImage.status === Image.Ready ? backgroundImage.implicitHeight : root.defaultHeight
 
         Connections {
             target: control
@@ -52,6 +52,16 @@ ButtonStyle {
             duration: QP.Theme.durationShort
             running: false
             alwaysRunToEnd: true
+        }
+
+        Image {
+            id: backgroundImage
+            anchors {
+                fill: parent
+                margins: parent.border.width + 2
+            }
+            fillMode: Image.PreserveAspectFit
+            source: control.iconSource
         }
     }
 

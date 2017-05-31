@@ -2,24 +2,19 @@ import sys
 import PyQt5.QtCore as qtc
 import PyQt5.QtGui as qtg
 import PyQt5.QtQml as qtq
+import PyQt5.QtWidgets as qtw
 
 from .mongodatabase import *
 from .objects import *
 from .objectmodel import *
 
 
-class App(qtg.QGuiApplication):
+class App(qtw.QApplication):
     """An Application class that provides a few convenience services."""
 
-    def __init__(self, *args, qml='main.qml', **kwargs):
-        """Initialize the application.
-
-        Arguments:      qml                 The path to the main QML file
-                        organization        The name of the organization.
-                        app_name            The name of the application.
-        """
+    def __init__(self, *args, **kwargs):
+        """Initialize the application."""
         super().__init__(*args, **kwargs)
-
         self._qml_engine = None
 
     @property
@@ -63,11 +58,15 @@ class App(qtg.QGuiApplication):
         """Registers all subclasses of cls with the QML engine."""
         for cls in args:
             for sub in App._all_subclasses(cls):
-                version_major = getattr(sub, '__version_major__', 1)
-                version_minor = getattr(sub, '__version_minor__', 0)
-                uri = getattr(sub, '__qml_uri__', sub.__name__)
+                self.register_class(sub)
 
-                qtq.qmlRegisterType(sub, uri, version_major, version_minor, sub.__name__)
+    def register_class(self, cls):
+        """Registers a class with the QML engine."""
+        version_major = getattr(cls, '__version_major__', 1)
+        version_minor = getattr(cls, '__version_minor__', 0)
+        uri = getattr(cls, '__qml_uri__', cls.__name__)
+
+        qtq.qmlRegisterType(cls, uri, version_major, version_minor, cls.__name__)
 
     def prepare_root_context(self, context):
         """Prepare the root context before loading the main QML file. Provided by subclasses."""

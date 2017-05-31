@@ -390,6 +390,15 @@ Rectangle {
                     onTabCloseRequested: root.tabCloseRequested(index)
                 }
 
+                Item {Layout.fillWidth: true}
+
+                // Tools item
+                Item {
+                    id: toolsItem
+                    Layout.preferredHeight: childrenRect.height
+                    Layout.preferredWidth: childrenRect.width
+                }
+
                 // Fold button
                 Themed.SmallButton {
                     id: foldButton
@@ -405,13 +414,6 @@ Rectangle {
                             root.state = "folded"
                         }
                     }
-                }
-
-                // Tools item
-                Item {
-                    id: toolsItem
-                    Layout.preferredHeight: childrenRect.height
-                    Layout.preferredWidth: childrenRect.width
                 }
             }
 

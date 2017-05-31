@@ -2,23 +2,28 @@ from unittest import TestCase
 
 from PyQt5.QtCore import pyqtSignal
 
-from cupi.objects import MapObject, MapProperty
+from cupi.objects import MapObject, Property
 
 
 class MapObjectSubclass(MapObject):
     p2Notify = pyqtSignal()
     p3Notify = pyqtSignal()
 
-    p1 = MapProperty(int, 'p1')
-    p2 = MapProperty(int, 'p2', notify=p2Notify)
-    p3 = MapProperty(int, 'p3', notify=p3Notify, default=5)
-    p4 = MapProperty(int, 'p4', default_set=10)
+    p1 = Property(int, 'p1')
+    p2 = Property(int, 'p2', notify=p2Notify)
+    p3 = Property(int, 'p3', notify=p3Notify, default=5)
+    p4 = Property(int, 'p4', default_set=10)
+    property_name = Property(str, 'prop_name')
 
 
 class TestMapObjectSubclass(TestCase):
 
     def setUp(self):
-        self.obj = MapObjectSubclass(p1=1)
+        self.obj = MapObjectSubclass(p1=1, property_name='beep boop beep')
+
+    def test_init(self):
+        self.assertEqual(self.obj.property_name, 'beep boop beep')
+        self.assertIn('prop_name', self.obj)
 
     def test_property_get(self):
         self.assertEqual(1, self.obj.p1)

@@ -5,13 +5,13 @@ from tools import *
 
 class GenericObject(MapObject):
     onP1Changed = pyqtSignal()
-    p1 = MapProperty(str, 'p1', default_set='property 1', notify=onP1Changed)
+    p1 = Property(str, 'p1', default_set='property 1', notify=onP1Changed)
 
     onP2Changed = pyqtSignal()
-    p2 = MapProperty(str, 'p2', default_set='property 2', notify=onP2Changed)
+    p2 = Property(str, 'p2', default_set='property 2', notify=onP2Changed)
 
     onP3Changed = pyqtSignal()
-    p3 = MapProperty(str, 'p3', default_set='property 3', notify=onP3Changed)
+    p3 = Property(str, 'p3', default_set='property 3', notify=onP3Changed)
 
 
 if __name__ == '__main__':

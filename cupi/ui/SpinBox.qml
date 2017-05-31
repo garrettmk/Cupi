@@ -10,13 +10,14 @@ SpinBox {
         selectionColor: Themed.Theme.highlightColor
         selectedTextColor: Themed.Theme.selectedTextColor
         font.pointSize: Themed.Theme.textPointSize
+        horizontalAlignment: Qt.AlignRight
 
         property real borderAlpha: control.hovered || control.activeFocus ? 1 : 0.5
         Behavior on borderAlpha {NumberAnimation {duration: Themed.Theme.durationShort; easing.type: Themed.Theme.fadeEasingType}}
 
         background: Rectangle {
             color: "transparent"
-            implicitWidth: 100
+            implicitWidth: 80
             implicitHeight: 20
 
             Rectangle {
@@ -30,6 +31,7 @@ SpinBox {
 
         incrementControl: Item {
             implicitWidth: 10
+            visible: control.enabled
 
             Item {
                 clip: true
@@ -51,6 +53,7 @@ SpinBox {
 
         decrementControl: Item {
             implicitWidth: 10
+            visible: control.enabled
 
             Item {
                 clip: true

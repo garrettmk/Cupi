@@ -3,8 +3,14 @@ import collections
 import itertools
 import pymongo
 import bson
-from .objectmodel import *
+from bson import ObjectId
+from bson.json_util import dumps as json_dumps
+from bson.codec_options import CodecOptions
+from tzlocal import get_localzone
+from .objects import *
+from .objectmodel import ObjectModel
 import PyQt5.QtCore as qtc
+import PyQt5.QtQml as qtq
 
 
 ########################################################################################################################
@@ -12,17 +18,11 @@ import PyQt5.QtCore as qtc
 
 class MongoQuery(MapObject):
     """Helper object for generating and saving Mongo query documents."""
-    query = MapProperty(qtc.QVariant, '$query', default_set=lambda s: MapObject(parent=s))
-    sort = MapProperty(qtc.QVariant, '$orderby', default_set=lambda s: MapObject(parent=s))
+    queryChanged = qtc.pyqtSignal()
+    query = MapObjectProperty(MapObject, '$query')
 
-    def __init__(self, *args, query=None, sort=None, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        if query is not None:
-            self.query = MapObject(query)
-
-        if sort is not None:
-            self.sort = MapObject(sort)
+    sortChanged = qtc.pyqtSignal()
+    sort = MapObjectProperty(MapObject, '$orderby')
 
     def requestedIds(self):
         """Returns a list of id's requested by the query. For example, for the query {'_id': 1234}, requestedIds
@@ -38,66 +38,99 @@ class MongoQuery(MapObject):
                                                idq.get('$and', []),
                                                idq.get('$or', []))]
 
-    @qtcore.pyqtSlot(str, qtcore.QVariant)
+    @qtc.pyqtSlot(str, qtc.QVariant)
     def filterByValue(self, role_name, value):
         """Filter a role by a specific value."""
         self.query[role_name] = value
 
-    @qtcore.pyqtSlot(str, result=qtcore.QVariant)
+    @qtc.pyqtSlot(str, result=qtc.QVariant)
     def getFilterValue(self, role_name):
         """Return the value for a specific role's filter."""
         return self.query.get(role_name, None)
 
-
-########################################################################################################################
-
-
-class MongoObjectReference(MapObject):
-    """Holds a reference to another object in the database."""
-
-    referencedId = MapProperty(bson.ObjectId, 'referenced_id', default=None)
-    referencedType = MapProperty(str, 'referenced_type', default='')
-
-    autoLoadChanged = qtcore.pyqtSignal()
-    autoLoad = MapProperty(bool, 'auto_load', notify=autoLoadChanged, default=False)
-
-    readOnlyChanged = qtcore.pyqtSignal()
-    readOnly = MapProperty(bool, 'read_only', notify=readOnlyChanged, default=False)
-
-    def __init__(self, *args, item=None, **kwargs):
-        """Initialize the object."""
-        super().__init__(*args, **kwargs)
-        self._item = None
-        self.item = item
-
-    itemChanged = qtcore.pyqtSignal()
-    @qtcore.pyqtProperty(DocumentObject, notify=itemChanged)
-    def item(self):
-        """The referenced item."""
-        return self._item
-
-    @item.setter
-    def item(self, item):
-        """Sets the referenced item to item."""
-        if item is not None:
-            if not isinstance(item, MapObject):
-                raise TypeError('Expected MapObject or subclass, got %s' % type(item))
-            elif '_id' not in item:
-                raise ValueError('Object does not have an _id: %s' % item)
-
-            self._item = item
-            self.referencedId = item['_id']
-            self.referencedType = getattr(item, '_type', type(item).__name__)
+    @qtc.pyqtSlot(str, str)
+    def filterByRegex(self, role_name, regex):
+        """Filter a role using a regular expression."""
+        if regex:
+            self.query[role_name] = {'$regex': regex, '$options': 'i'}
         else:
-            self._item = None
-            self.referencedId = ''
-            self.referencedType = ''
+            self.query.pop(role_name, None)
+
+    @qtc.pyqtSlot(str, result=qtc.QVariant)
+    def getFilterRegex(self, role_name):
+        """Returns the regular expression used to filter a role."""
+        try:
+            return self.query[role_name]['$regex']
+        except KeyError:
+            return None
+
+    @qtc.pyqtSlot(str, float)
+    def setFilterRangeMin(self, role_name, value):
+        if not value:
+            try:
+                del self.query[role_name]['$gte']
+            except KeyError:
+                return
+
+        priors = self.query.get(role_name, {})
+        params = {'$gte': value}
+        priors.update(params)
+        self.query[role_name] = priors
+
+    @qtc.pyqtSlot(str, float)
+    def setFilterRangeMax(self, role_name, value):
+        if not value:
+            try:
+                del self.query[role_name]['$lte']
+            except KeyError:
+                return
+
+        priors = self.query.get(role_name, {})
+        params = {'$lte': value}
+        priors.update(params)
+        self.query[role_name] = priors
+
+    @qtc.pyqtSlot(str, result=qtc.QVariant)
+    def getFilterRangeMin(self, role_name):
+        """Return the bottom limit of filter for the specified role."""
+        try:
+            return self.query[role_name]['$gte']
+        except KeyError:
+            return None
+
+    @qtc.pyqtSlot(str, result=qtc.QVariant)
+    def getFilterRangeMax(self, role_name):
+        """Return the upper limit of the filter used for the specified role."""
+        try:
+            return self.query[role_name]['$lte']
+        except KeyError:
+            return None
+
+    @qtc.pyqtSlot(str, int)
+    def sortByRole(self, role_name, order):
+        """Sort the results by role, in ascending or descending order."""
+        self.sort[role_name] = 1 if order == qtc.Qt.AscendingOrder else -1
+
+    @qtc.pyqtSlot(str, result=qtc.QVariant)
+    def getSortOrder(self, role_name):
+        """Return the role used to sort query results."""
+        try:
+            return self.sort[role_name]
+        except KeyError:
+            return None
 
 
 ########################################################################################################################
 
 
-class MongoObjectCursor(qtcore.QObject):
+class MongoObjectReference(MapObjectReference):
+    referencedId = Property(bson.ObjectId, 'referenced_id', default=None)
+
+
+########################################################################################################################
+
+
+class MongoObjectCursor(qtc.QObject):
     """Automatically converts documents from a pymongo cursor to the appropriate subclass of
     MapObject. Also provides a few convenience methods, and the ability for use from within QML.
     """
@@ -128,7 +161,6 @@ class MongoObjectCursor(qtcore.QObject):
             if doc is not None:
                 obj = MapObject.from_document(MongoDatabase.unescaped(doc), default_type=self._default_type)
                 if self._database is not None:
-                    self._database._cache[doc['_id']] = doc
                     self._database.getAllReferencedObjects(obj)
 
                 return obj
@@ -142,7 +174,7 @@ class MongoObjectCursor(qtcore.QObject):
     def __len__(self):
         return self._count
 
-    @qtcore.pyqtSlot(result=qtcore.QObject)
+    @qtc.pyqtSlot(result=qtc.QObject)
     def next(self):
         """Return the next object in the sequence, or None."""
         try:
@@ -150,14 +182,14 @@ class MongoObjectCursor(qtcore.QObject):
         except StopIteration:
             return None
 
-    countChanged = qtcore.pyqtSignal()
-    @qtcore.pyqtProperty(int, notify=countChanged)
+    countChanged = qtc.pyqtSignal()
+    @qtc.pyqtProperty(int, notify=countChanged)
     def count(self):
         """The number of documents in the cursor."""
         return self._count
 
-    doneChanged = qtcore.pyqtSignal()
-    @qtcore.pyqtProperty(bool)
+    doneChanged = qtc.pyqtSignal()
+    @qtc.pyqtProperty(bool)
     def done(self):
         """True if the cursor has been exhausted."""
         return self._done
@@ -182,13 +214,13 @@ class CursorObjectModel(ObjectModel):
         self._page_size = page_size
         self.fetchMore()
 
-    @qtcore.pyqtSlot(result=bool)
-    def canFetchMore(self, parent_idx=qtcore.QModelIndex()):
+    @qtc.pyqtSlot(result=bool)
+    def canFetchMore(self, parent_idx=qtc.QModelIndex()):
         """Return True if more objects can be loaded from the cursor."""
         return not self._cursor.done
 
-    @qtcore.pyqtSlot()
-    def fetchMore(self, parent_idx=qtcore.QModelIndex()):
+    @qtc.pyqtSlot()
+    def fetchMore(self, parent_idx=qtc.QModelIndex()):
         """Add another page of objects from the cursor to the model."""
         new = []
         for i in range(self._page_size):
@@ -201,16 +233,23 @@ class CursorObjectModel(ObjectModel):
 
         length = len(self)
         newlength = length + len(new)
-        self.beginInsertRows(qtcore.QModelIndex(), length, newlength)
+        self.beginInsertRows(qtc.QModelIndex(), length, newlength)
         self._original.extend(new)
         self._copy.extend(new)
         self.endInsertRows()
+
+    @qtc.pyqtSlot(result=int)
+    def totalRows(self):
+        try:
+            return self._cursor.count
+        except AttributeError:
+            return 0
 
 
 ########################################################################################################################
 
 
-class MongoDatabase(qtcore.QObject):
+class MongoDatabase(qtc.QObject):
     """MongoDatabase provides integration between Mongo, Qt/QML, and qp."""
 
     @staticmethod
@@ -229,7 +268,9 @@ class MongoDatabase(qtcore.QObject):
 
     @staticmethod
     def _escaped(doc):
-        if isinstance(doc, collections.Mapping):
+        if isinstance(doc, str):
+            return doc.translate(MongoDatabase._escape_map)
+        elif isinstance(doc, collections.Mapping):
             escaped = {}
             for key, value in doc.items():
                 if isinstance(value, collections.Mapping) \
@@ -249,7 +290,7 @@ class MongoDatabase(qtcore.QObject):
 
                 escaped.append(item)
         else:
-            raise TypeError(type(doc))
+            return doc
 
         return escaped
 
@@ -300,15 +341,16 @@ class MongoDatabase(qtcore.QObject):
 
         for key, value in obj.items():
             if key in mods:
-                if isinstance(value, DocumentObject):
-                    value = value.document
+                if isinstance(value, (collections.Mapping, collections.Sequence)) \
+                        and not isinstance(value, str):
+                    value = MongoDatabase.escaped(value)
 
-                response['$set'].update(MongoDatabase.escaped({key: value}))
+                response['$set'].update({MongoDatabase.escaped(key): value})
             else:
                 if isinstance(value, DocumentObject) and value.modified:
                     updates = MongoDatabase._updates(value)
-                    response['$set'].update({('%s.%s' % (key, k)).rstrip('.'): v for k, v in updates.get('$set', {}).items()})
-                    response['$unset'].update({'%s.%s' % (key, k): v for k, v in updates.get('$unset', {}).items()})
+                    response['$set'].update({('%s.%s' % (MongoDatabase.escaped(key), k)).rstrip('.'): v for k, v in updates.get('$set', {}).items()})
+                    response['$unset'].update({'%s.%s' % (MongoDatabase.escaped(key), k): v for k, v in updates.get('$unset', {}).items()})
 
         for key in obj.dels:
             response['$unset'].update({key: None})
@@ -321,20 +363,19 @@ class MongoDatabase(qtcore.QObject):
 
         return response
 
-    def __init__(self, *args, uri=None, db=None, cache_size=100, **kwargs):
+    def __init__(self, *args, uri=None, db=None, maxsize=100, **kwargs):
         """Initialize the database object."""
         super().__init__(*args, **kwargs)
 
         self._client = None
         self._db = None
         self._uri = ''
-        self._collection_names = qtcore.QStringListModel(parent=self)
+        self._collection_names = []
         self._status_message = ''
         self._error_msgs = []
-        self._cache = cachetools.LFUCache(maxsize=cache_size)
 
-    statusMessageChanged = qtcore.pyqtSignal()
-    @qtcore.pyqtProperty(str, notify=statusMessageChanged)
+    statusMessageChanged = qtc.pyqtSignal()
+    @qtc.pyqtProperty(str, notify=statusMessageChanged)
     def statusMessage(self):
         """The current status message."""
         return self._status_message
@@ -344,30 +385,30 @@ class MongoDatabase(qtcore.QObject):
         self._status_message = str(msg)
         self.statusMessageChanged.emit()
 
-    lastErrorsTextChanged = qtcore.pyqtSignal()
-    @qtcore.pyqtProperty(str)
+    lastErrorsTextChanged = qtc.pyqtSignal()
+    @qtc.pyqtProperty(str)
     def lastErrorsText(self):
         return '\n'.join(self._error_msgs)
 
-    uriChanged = qtcore.pyqtSignal()
-    @qtcore.pyqtProperty(str, notify=uriChanged)
+    uriChanged = qtc.pyqtSignal()
+    @qtc.pyqtProperty(str, notify=uriChanged)
     def uri(self):
         """The URI of the current database connection."""
         return self._uri
 
-    collectionNamesChanged = qtcore.pyqtSignal()
-    @qtcore.pyqtProperty(qtcore.QStringListModel, notify=collectionNamesChanged)
+    collectionNamesChanged = qtc.pyqtSignal()
+    @qtc.pyqtProperty(qtc.QVariant, notify=collectionNamesChanged)
     def collectionNames(self):
         """A QStringListModel holding the names of the collections in the database."""
         return self._collection_names
 
-    connectedChanged = qtcore.pyqtSignal()
-    @qtcore.pyqtProperty(bool, notify=connectedChanged)
+    connectedChanged = qtc.pyqtSignal()
+    @qtc.pyqtProperty(bool, notify=connectedChanged)
     def connected(self):
         """True if the object is currently connect to a database."""
         return self._db is not None
 
-    @qtcore.pyqtSlot(str, str)
+    @qtc.pyqtSlot(str, str)
     def connect(self, dbname, uri=None):
         """Connect to a database at a given URI."""
         if self._client:
@@ -382,68 +423,68 @@ class MongoDatabase(qtcore.QObject):
         self._uri = uri
         self.uriChanged.emit()
 
-        self._collection_names.setStringList(self._db.collection_names())
+        self._collection_names = self._db.collection_names()
         self.collectionNamesChanged.emit()
 
         self.statusMessage = 'Connected to database \'%s\' at %s' % (dbname, uri)
         self.connectedChanged.emit()
 
-    @qtcore.pyqtSlot()
+    @qtc.pyqtSlot()
     def disconnect(self):
         """Disconnect from Mongo."""
         if self._client:
             self._client.close()
             self._db = None
             self._uri = ''
-            self._collection_names.setStringList([])
-
-            self._cache.clear()
+            self._collection_names = []
 
             self.connectedChanged.emit()
             self.uriChanged.emit()
             self.collectionNamesChanged.emit()
             self.statusMessage = 'Disconnected from database.'
 
-    @qtcore.pyqtSlot(str, MongoQuery, qtcore.QObject, result=MapObject)
-    def getObject(self, _type, query=None, parent=None, use_cache=True):
+    @qtc.pyqtSlot(str, MongoQuery, qtc.QObject, result=MapObject)
+    def getObject(self, _type, query=None, parent=None):
         """Returns the first object matched by the query."""
-        query = query if query is not None else MongoQuery()
+        _type = MapObject.subtype(_type)
+        collection = self._db[_type.__collection__].with_options(codec_options=CodecOptions(tz_aware=True,
+                                                                                            tzinfo=get_localzone()))
 
-        for i in query.requestedIds() if use_cache else []:
-            doc = self._cache.get(i, None)
-            if doc is not None:
-                break
-        else:
-            _type = MapObject.subtype(_type)
-            collection = self._db[_type.__collection__]
-            doc = collection.find_one(query.query.document, modifiers={'$orderby': query.sort.document})
+        query, sort = (query.query.document, query.sort.document) if query is not None else ({}, {})
+        query['_type'] = {'$in': [_type.__name__] + _type.all_subclass_names()}
 
-        return MapObject.from_document(doc, default_type=_type, parent=parent) if doc else None
+        doc = collection.find_one(query, modifiers={'$orderby': sort})
+        obj = MapObject.from_document(doc, default_type=_type, parent=parent) if doc else None
+        if obj is not None:
+            self.getAllReferencedObjects(obj)
 
-    @qtcore.pyqtSlot(str, MongoQuery, qtcore.QObject, result=MongoObjectCursor)
+        return obj
+
+    @qtc.pyqtSlot(str, MongoQuery, qtc.QObject, result=MongoObjectCursor)
     def getCursor(self, _type, query=None, parent=None):
         """Return a MongoObjectCursor resulting from the given query."""
         _type = MapObject.subtype(_type)
-        query = query if query is not None else MongoQuery()
-        collection = self._db[_type.__collection__]
+        collection = self._db[_type.__collection__].with_options(codec_options=CodecOptions(tz_aware=True,
+                                                                                            tzinfo=get_localzone()))
 
-        cursor = collection.find(query.query.document,
-                                 modifiers={'$orderby': query.sort.document},
-                                 no_cursor_timeout=True)
+        query, sort = (query.query.document, query.sort.document) if query is not None else ({}, {})
+        query['_type'] = {'$in': [_type.__name__] + _type.all_subclass_names()}
+
+        cursor = collection.find(query, modifiers={'$orderby': sort}, no_cursor_timeout=True)
 
         return MongoObjectCursor(cursor, database=self, default_type=_type, parent=parent)
 
-    @qtcore.pyqtSlot(str, MongoQuery, qtcore.QObject, result=ObjectModel)
-    def getModel(self, _type, query=None, parent=None):
+    @qtc.pyqtSlot(str, MongoQuery, qtc.QObject, result=ObjectModel)
+    def getModel(self, _type, query=None, parent=None, **kwargs):
         """Return the results of a query in an ObjectModel."""
         _type = MapObject.subtype(_type)
         cursor = self.getCursor(_type, query)
         if cursor is not None:
-            return CursorObjectModel(_type=_type, cursor=cursor, parent=parent)
+            return CursorObjectModel(_type=_type, cursor=cursor, parent=parent, **kwargs)
         else:
             return None
 
-    @qtcore.pyqtSlot(MapObject, result=bool)
+    @qtc.pyqtSlot(MapObject, result=bool)
     def saveObject(self, obj):
         """Save or update the object in the database."""
         collection = self._db[obj.__collection__]
@@ -464,15 +505,16 @@ class MongoDatabase(qtcore.QObject):
             obj['_id'] = result.inserted_id
 
         obj.apply()
-        self._cache[obj['_id']] = obj.document
         return True
 
-    @qtcore.pyqtSlot(ObjectModel, result=bool)
+    @qtc.pyqtSlot(ObjectModel, result=bool)
     def saveModel(self, model):
         """Save all the objects in model."""
         self.statusMessage = 'Preparing to save %s objects...' % len(model)
-        qtcore.QCoreApplication.processEvents()
+        qtc.QCoreApplication.processEvents()
+
         self._error_msgs, error_msgs = [], []
+        count = 0
 
         # Sort the objects in the model by collection, ignoring unmodified objects
         objects = sorted(model, key=lambda o: o.__collection__)
@@ -487,6 +529,10 @@ class MongoDatabase(qtcore.QObject):
 
             # Inserts and updates
             for obj in group_list:
+                count += 1
+                self.statusMessage = 'Scanning object %s' % count
+                qtc.QCoreApplication.processEvents()
+
                 _id = obj.get('_id', None)
 
                 if _id is not None:
@@ -495,9 +541,13 @@ class MongoDatabase(qtcore.QObject):
                 else:
                     doc = MongoDatabase.escaped(obj.document)
                     bulk.insert(doc)
+                    obj.id = doc['_id']
 
             # Perform the operation
+            self.statusMessage = 'Performing bulk update...'
+            qtc.QCoreApplication.processEvents()
             error_idxs = []
+
             try:
                 result = bulk.execute()
             except pymongo.errors.InvalidOperation as e:
@@ -509,7 +559,6 @@ class MongoDatabase(qtcore.QObject):
             # Cache and call apply() on objects that were saved successfully
             for i, o in enumerate(group_list):
                 if i not in error_idxs:
-                    self._cache[o['_id']] = o.document
                     o.apply()
 
         # If it's an ObjectModel, call deleteRemoved()
@@ -519,37 +568,83 @@ class MongoDatabase(qtcore.QObject):
         # Save any error messages
         self._error_msgs.extend(error_msgs)
 
-        return not len(error_msgs)
+        self.statusMessage = 'Save operation completed with %s errors.' % len(self._error_msgs)
+        return not len(self._error_msgs)
 
-    @qtcore.pyqtSlot(ObjectModel, result=bool)
+    @qtc.pyqtSlot(ObjectModel, result=bool)
     def deleteRemoved(self, model):
         """Delete all objects in the database that have been deleted from the model."""
         dels = model.deleted
-        self.statusMessage = 'Preparing to delete %s objects...' % len(dels)
-        qtcore.QCoreApplication.processEvents()
+        self.statusMessage = 'Deleting %s objects...' % len(dels)
+        qtc.QCoreApplication.processEvents()
 
         objects = sorted(dels, key=lambda o: o.__collection__)
         for coll_name, group in itertools.groupby(objects, lambda o: o.__collection__):
             collection = self._db[coll_name]
             ids = list(set([o.get('_id', None) for o in group if o.get('_id', None) is not None]))
             collection.remove({'_id': {'$in': ids}})
-            for i in ids:
-                self._cache.pop(i, None)
 
         model.apply()
+        self.statusMessage = 'Done.'
         return True
 
-    @qtcore.pyqtSlot(MongoObjectReference, qtcore.QObject, result=MapObject)
+    @qtc.pyqtSlot(MongoObjectReference, qtc.QObject, result=MapObject)
     def getReferencedObject(self, ref, parent=None):
         """Loads an object into a MongoObjectReference."""
-        obj = self.getObject(ref.referencedType, MongoQuery(query={'_id': ref.referencedId}), parent)
-        ref.item = obj
+        obj = self.getObject(ref.referencedType or type(ref).referencedType,
+                             MongoQuery(query={'_id': ref.referencedId}),
+                             parent=parent)
+
+        ref.ref = obj
         return obj
 
-    @qtcore.pyqtSlot(MapObject, bool)
-    def getAllReferencedObjects(self, obj, load_all=False):
-        """Loads all of an object's references. If load_all is True, the reference's autoLoad property is ignored
-        and the referenced object is loaded anyways."""
-        for key, value in obj.items():
-            if isinstance(value, MongoObjectReference) and (value.autoLoad or load_all):
-                self.getReferencedObject(value, parent=obj)
+    @qtc.pyqtSlot(MapObject, bool)
+    def getAllReferencedObjects(self, obj, load_all=False, _already_loaded=None):
+        """Loads all of an object's references. If load_all is True, the reference's autoLoad property will be
+        ignored and the referenced object will be loaded anyways."""
+        already_loaded = _already_loaded if _already_loaded is not None else {}
+
+        if isinstance(obj, collections.Mapping):
+            items = obj.values()
+        elif isinstance(obj, collections.Sequence):
+            items = obj
+        else:
+            raise TypeError('Expected mapping or sequence, got %s' % type(obj))
+
+        for item in items:
+            if isinstance(item, MongoObjectReference) and (item.autoLoad or load_all):
+                try:
+                    item.ref = already_loaded[item.referencedId]
+                except KeyError:
+                    self.getReferencedObject(item, parent=item)
+                    already_loaded[item.referencedId] = item.ref
+                    #self.getAllReferencedObjects(item.ref, False, already_loaded)
+
+            elif isinstance(item, (collections.Mapping, collections.Sequence)) \
+                    and not isinstance(item, str):
+                self.getAllReferencedObjects(item, load_all, already_loaded)
+
+    @qtc.pyqtSlot(ObjectModel, bool)
+    def saveReferencedObjects(self, refs_model):
+        """Save the objects references by an iterable of MongoObjectReferences."""
+        objs = [ref.ref for ref in refs_model if ref.ref is not None]
+        return self.saveModel(objs)
+
+    @qtc.pyqtSlot(str, str, result=str)
+    def getQueryText(self, collection, query):
+        """Returns the formatted text of the documents return by query."""
+        try:
+            collection = self._db[collection]
+            cursor = collection.find(eval(query), modifiers={'$maxScan': 50})
+            result = '\n\n'.join([json_dumps(doc, indent=4) for doc in cursor])
+            return result
+        except Exception as e:
+            return repr(e)
+
+    @qtc.pyqtSlot(str, MongoQuery, result=int)
+    def queryCount(self, _type, query):
+        """Returns the number of documents in the given query."""
+        cursor = self.getCursor(_type, query)
+        return cursor.count
+
+

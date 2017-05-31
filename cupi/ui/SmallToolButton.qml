@@ -5,15 +5,14 @@ import "." as QP
 
 Button {
     id: root
+    implicitWidth: QP.Theme.toolButtonSizeSmall + 4
+    implicitHeight: QP.Theme.toolButtonSizeSmall + 4
     property bool bold: false
 
     style: QP.ButtonStyle {
-        id: style
         borderAlpha: control.hovered ? 1 : 0
         fontPointSize: QP.Theme.textPointSizeSmall
         fontBold: root.bold
-        defaultWidth: 30
-        defaultHeight: 15
         radius: QP.Theme.radiusSmall
     }
 }

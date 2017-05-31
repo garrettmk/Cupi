@@ -1,7 +1,7 @@
 import QtQuick 2.7
 import QtQuick.Controls 1.4
 import QtQuick.Layouts 1.3
-import "." as Themed
+import "." as QP
 
 Item {
     id: root
@@ -11,20 +11,18 @@ Item {
     property alias model: repeater.model
     property alias delegate: repeater.delegate
 
-    signal newTag(string tag)
-    signal tagClosed(string tag)
+    signal tagsChanged()
     signal tagClicked(string tag)
-
-    // Default signal handler
-    onNewTag: {console.log(model); addTag(tag)}
 
     // Methods
     function addTag(tag) {
         model.append({"tag": tag})
+        tagsChanged()
     }
 
     function removeTag(index) {
         repeater.model.remove(index, 1)
+        tagsChanged()
     }
 
     function clear() {
@@ -34,8 +32,16 @@ Item {
     function setTags(tags) {
         repeater.model.clear()
         for (var i=0; i<tags.length; i++) {
-            repeater.model.append({"tags": tags[i]})
+            repeater.model.append({"tag": tags[i]})
         }
+    }
+
+    function getTags() {
+        var tags = []
+        for (var i=0; i<repeater.model.count; i++) {
+            tags.push(repeater.model.get(i)["tag"])
+        }
+        return tags
     }
 
     TextMetrics {
@@ -47,17 +53,16 @@ Item {
     // Body
     Flow {
         id: flow
-        spacing: Themed.Theme.spacingSmall
+        spacing: QP.Theme.spacingSmall
         anchors.fill: parent
 
         Repeater {
             id: repeater
             model: ListModel {}
-            delegate: Themed.TagDelegate {
+            delegate: QP.TagDelegate {
                 text: tag
                 onTagClosed: {
-                    root.tagClosed(modelData)
-                    repeater.model.remove(index, 1)
+                    removeTag(index)
                 }
                 onTagClicked: {
                     root.tagClicked(modelData)
@@ -65,13 +70,13 @@ Item {
             }
         }
 
-        Themed.TextField {
+        QP.TextField {
             id: textField
             visible: root.enabled
             implicitWidth: textMetrics.width
             onEditingFinished: {
                 if (text !== "") {
-                    root.newTag(textField.text.trim())
+                    root.addTag(textField.text.trim())
                     textField.text = ""
                 }
             }
@@ -81,9 +86,9 @@ Item {
             SequentialAnimation {
                 PropertyAction {property:"opacity"; value: 0}
                 PauseAnimation {
-                    duration: Themed.Theme.durationMid
+                    duration: QP.Theme.durationMid
                 }
-                NumberAnimation {property: "opacity"; from: 0; to: 1; duration: Themed.Theme.durationShort; easing.type: Themed.Theme.fadeEasingType}
+                NumberAnimation {property: "opacity"; from: 0; to: 1; duration: QP.Theme.durationShort; easing.type: QP.Theme.fadeEasingType}
             }
 
         }
@@ -91,8 +96,8 @@ Item {
         move: Transition {
             id: moveTrans
             ParallelAnimation {
-                NumberAnimation {property: "opacity"; from: 0; to: 1; duration: Themed.Theme.durationMid; easing.type: Themed.Theme.fadeEasingType}
-                NumberAnimation {properties: "x,y"; duration: Themed.Theme.durationMid; easing.type: Themed.Theme.defaultEasingType}
+                NumberAnimation {property: "opacity"; from: 0; to: 1; duration: QP.Theme.durationMid; easing.type: QP.Theme.fadeEasingType}
+                NumberAnimation {properties: "x,y"; duration: QP.Theme.durationMid; easing.type: QP.Theme.defaultEasingType}
             }
         }
     }

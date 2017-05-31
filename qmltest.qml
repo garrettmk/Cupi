@@ -3,7 +3,7 @@ import QtQuick.Controls 1.4
 import QtQuick.Window 2.2
 import QtQuick.Layouts 1.3
 import QtQuick.Dialogs 1.0
-import cupi.ui 1.0 as Themed
+import cupi.ui 1.0 as QP
 
 Window {
     id:                 root
@@ -13,15 +13,15 @@ Window {
     width:              1200
     height:             1000
 
-    Themed.ThemeEditor {
+    QP.ThemeEditor {
         id: testDialog
     }
 
     Rectangle {
         anchors.fill: parent
-        color: Themed.Theme.backgroundColor
+        color: QP.Theme.backgroundColor
 
-        Themed.ToolBar {
+        QP.ToolBar {
             id: testToolBar
             anchors {
                 top: parent.top
@@ -31,7 +31,7 @@ Window {
 
             RowLayout {
                 anchors.fill: parent
-                Themed.Button {text: "Button"}
+                QP.Button {text: "Button"}
                 Item {Layout.fillWidth: true}
             }
         }
@@ -40,91 +40,91 @@ Window {
             id: testArea
             anchors {
                 fill: parent
-                margins: Themed.Theme.spacingBig
-                topMargin: testToolBar.height + Themed.Theme.spacingBig
-                bottomMargin: testStatusBar.height + Themed.Theme.spacingBig
+                margins: QP.Theme.spacingBig
+                topMargin: testToolBar.height + QP.Theme.spacingBig
+                bottomMargin: testStatusBar.height + QP.Theme.spacingBig
             }
 
-            spacing: Themed.Theme.spacingBig
+            spacing: QP.Theme.spacingBig
             flow: Flow.TopToBottom
 
             property int panelWidth: (width - spacing) / 2
 
-            Themed.Panel {
+            QP.BasePanel {
                 width: testArea.panelWidth
                 contentHeight: 200
 
                 Rectangle {
-                    color: Themed.Theme.highlightColor
+                    color: QP.Theme.highlightColor
                     anchors.fill: parent
 
-                    Themed.Text {
+                    QP.Text {
                         text: "A fixed panel with no title."
                         anchors.centerIn: parent
                     }
                 }
             }
 
-            Themed.Panel {
+            QP.Panel {
                 title: "Button Types"
                 width: testArea.panelWidth
                 contentHeight: layout1.implicitHeight
 
                 tools: Row {
                     spacing: 1
-                    Themed.SmallButton {text: "Tool"}
-                    Themed.SmallButton {text: "buttons"}
+                    QP.SmallButton {text: "Tool"}
+                    QP.SmallButton {text: "buttons"}
                 }
 
                 Column {
                     id: layout1
-                    spacing: Themed.Theme.spacingMid
+                    spacing: QP.Theme.spacingMid
                     anchors.fill: parent
 
                     Row {
-                        spacing: Themed.Theme.spacingMid
+                        spacing: QP.Theme.spacingMid
                         anchors.horizontalCenter: parent.horizontalCenter
-                        Themed.Button {
+                        QP.Button {
                             text: "Regular"
                         }
-                        Themed.Button {
+                        QP.Button {
                             text: "Buttons"
                             onClicked: testDialog.show()
                         }
                     }
 
                     Row {
-                        spacing: Themed.Theme.spacingSmall
+                        spacing: QP.Theme.spacingSmall
                         anchors.horizontalCenter: parent.horizontalCenter
 
-                        Themed.SmallButton {text: "These"}
-                        Themed.SmallButton {text: "are"}
-                        Themed.SmallButton {text: "small"}
-                        Themed.SmallButton {text: "buttons."}
+                        QP.SmallButton {text: "These"}
+                        QP.SmallButton {text: "are"}
+                        QP.SmallButton {text: "small"}
+                        QP.SmallButton {text: "buttons."}
                     }
 
                     Row {
-                        spacing: Themed.Theme.spacingMid
+                        spacing: QP.Theme.spacingMid
                         anchors.horizontalCenter: parent.horizontalCenter
 
                         Column {
-                            spacing: Themed.Theme.spacingSmall
+                            spacing: QP.Theme.spacingSmall
 
-                            Themed.CheckBox {text: "Check"; checked: true}
-                            Themed.CheckBox {text: "Boxes"}
+                            QP.CheckBox {text: "Check"; checked: true}
+                            QP.CheckBox {text: "Boxes"}
                         }
 
                         Column {
-                            spacing: Themed.Theme.spacingSmall
+                            spacing: QP.Theme.spacingSmall
                             ExclusiveGroup {id: ex}
-                            Themed.RadioButton {text: "Radio"; exclusiveGroup: ex}
-                            Themed.RadioButton {text: "Buttons"; exclusiveGroup: ex}
+                            QP.RadioButton {text: "Radio"; exclusiveGroup: ex}
+                            QP.RadioButton {text: "Buttons"; exclusiveGroup: ex}
                         }
                     }
                 }
             }
 
-            Themed.Panel {
+            QP.Panel {
                 title: "Input Elements"
                 width: testArea.panelWidth
                 contentHeight: inputLayout.implicitHeight
@@ -132,44 +132,42 @@ Window {
                 GridLayout {
                     id: inputLayout
                     columns: 2
-                    rowSpacing: Themed.Theme.spacingMid
-                    columnSpacing: Themed.Theme.spacingMid
+                    rowSpacing: QP.Theme.spacingMid
+                    columnSpacing: QP.Theme.spacingMid
 
                     anchors.fill: parent
 
-                    Themed.Text {text: "SpinBox:"; Layout.alignment: Qt.AlignRight}
-                    Themed.SpinBox {minimumValue: -10; maximumValue: 10; decimals: 1}
+                    QP.Text {text: "SpinBox:"; Layout.alignment: Qt.AlignRight}
+                    QP.SpinBox {minimumValue: -10; maximumValue: 10; decimals: 1}
 
-                    Themed.Text {text: "PercentBox:"; Layout.alignment: Qt.AlignRight}
-                    Themed.PercentBox {value: 55}
+                    QP.Text {text: "PercentBox:"; Layout.alignment: Qt.AlignRight}
+                    QP.PercentBox {value: 55}
 
-                    Themed.Text {text: "PriceBox:"; Layout.alignment: Qt.AlignRight}
-                    Themed.PriceBox {value: 55.98}
+                    QP.Text {text: "PriceBox:"; Layout.alignment: Qt.AlignRight}
+                    QP.PriceBox {value: 55.98}
 
-                    Themed.Text {text: "ComboBox:"; Layout.alignment: Qt.AlignRight}
-                    Themed.ComboBox {model: ["Pick", "One", "Option"]}
+                    QP.Text {text: "ComboBox:"; Layout.alignment: Qt.AlignRight}
+                    QP.ComboBox {model: ["Pick", "One", "Option"]}
 
-                    Themed.Text {text: "Read-only ComboBox:"; Layout.alignment: Qt.AlignRight}
-                    Themed.ComboBox {model: ["Read-Only"]; enabled: false}
+                    QP.Text {text: "Read-only ComboBox:"; Layout.alignment: Qt.AlignRight}
+                    QP.ComboBox {model: ["Read-Only"]; enabled: false}
                 }
             }
 
-            Themed.Panel {
+            QP.Panel {
                 title: "Tags"
                 width: testArea.panelWidth
                 contentHeight: tagEditor.implicitHeight
 
                 tools: Row {
-                    Themed.SmallButton {text: tagEditor.enabled ? "Disable" : "Enable"; onClicked: tagEditor.enabled = !tagEditor.enabled}
-                    Themed.SmallButton {text: "Clear"; onClicked: tagEditor.clear()}
-                    Themed.SmallButton {text: "Reset"; onClicked: tagEditor.setTags(["These", "are", "all", "tags."])}
+                    QP.SmallButton {text: tagEditor.enabled ? "Disable" : "Enable"; onClicked: tagEditor.enabled = !tagEditor.enabled}
+                    QP.SmallButton {text: "Clear"; onClicked: tagEditor.clear()}
+                    QP.SmallButton {text: "Reset"; onClicked: tagEditor.setTags(["These", "are", "all", "tags."])}
                 }
 
-                Themed.TagEditor {
+                QP.TagEditor {
                     id: tagEditor
                     anchors.fill: parent
-                    onTagClosed: console.log(tag)
-                    onTagClicked: console.log(tag)
 
                     Component.onCompleted: {
                         setTags(["These", "are", "all", "tags"])
@@ -177,17 +175,17 @@ Window {
                 }
             }
 
-            Themed.Panel {
+            QP.Panel {
                 title: "Text Elements"
                 width: testArea.panelWidth
                 contentHeight: textElementsLayout.implicitHeight
 
                 ColumnLayout {
                     id: textElementsLayout
-                    spacing: Themed.Theme.spacingMid
+                    spacing: QP.Theme.spacingMid
                     anchors.fill: parent
 
-                    Themed.Text {
+                    QP.Text {
                         text: "This is a Themed Text element. It is a read-only element, and does not support selection."
                         wrapMode: Text.WordWrap
                         Layout.fillHeight: true
@@ -195,22 +193,22 @@ Window {
 
                     }
 
-                    Themed.Text {text: "Here are some elements that support text input:"}
+                    QP.Text {text: "Here are some elements that support text input:"}
 
                     GridLayout {
                         columns: 2
-                        rowSpacing: Themed.Theme.spacingSmall
-                        columnSpacing: Themed.Theme.spacingSmall
+                        rowSpacing: QP.Theme.spacingSmall
+                        columnSpacing: QP.Theme.spacingSmall
                         Layout.fillWidth: true
                         Layout.preferredHeight: implicitHeight
                         Layout.preferredWidth: implicitWidth
 
-                        Themed.Text {text: "TextField:"; Layout.alignment: Qt.AlignRight}
-                        Themed.TextField {placeholderText: "Placeholder text"; Layout.fillWidth: true}
-                        Themed.Text {text: "TextField:"; Layout.alignment: Qt.AlignRight}
-                        Themed.TextField {text: "Regular, selectable text."; Layout.fillWidth: true}
-                        Themed.Text {text: "TextField:"; Layout.alignment: Qt.AlignRight}
-                        Themed.TextField {
+                        QP.Text {text: "TextField:"; Layout.alignment: Qt.AlignRight}
+                        QP.TextField {placeholderText: "Placeholder text"; Layout.fillWidth: true}
+                        QP.Text {text: "TextField:"; Layout.alignment: Qt.AlignRight}
+                        QP.TextField {text: "Regular, selectable text."; Layout.fillWidth: true}
+                        QP.Text {text: "TextField:"; Layout.alignment: Qt.AlignRight}
+                        QP.TextField {
                             text: "Text that has been selected."
                             Layout.fillWidth: true
                             Component.onCompleted: selectAll()
@@ -219,24 +217,24 @@ Window {
                 }
             }
 
-            Themed.Panel {
+            QP.Panel {
                 title: "Text Areas"
                 width: testArea.panelWidth
                 contentHeight: 250
 
-                Themed.TextArea {
+                QP.TextArea {
                     text: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam at ex in enim auctor cursus non ultricies libero. Suspendisse gravida odio arcu, eget semper quam iaculis nec. Nunc id finibus felis. Maecenas faucibus mattis dui, quis accumsan ligula sagittis in. Maecenas bibendum nisi massa, ac consectetur leo facilisis et. Pellentesque eget erat mi. Pellentesque sapien neque, auctor dictum arcu nec, viverra egestas risus. Nulla malesuada ullamcorper urna quis elementum. Maecenas posuere varius orci, in porttitor nisl porta nec. Nunc scelerisque lectus vel augue pellentesque imperdiet. Praesent lectus ex, placerat in tempor vel, tristique eget nunc. Aenean sollicitudin mattis ex. Vestibulum nulla ligula, rhoncus vitae sapien in, ornare sollicitudin neque. Phasellus vitae mollis ante."
                     anchors.fill: parent
                 }
             }
 
-            Themed.TabView {
+            QP.TabView {
                 id: tabView
                 title: "TabView"
                 width: testArea.panelWidth
                 contentHeight: 250
 
-                tools: Themed.SmallButton {
+                tools: QP.SmallButton {
                     text: "Add"
                     onClicked: tabView.addTab("New Tab")
                 }
@@ -246,21 +244,27 @@ Window {
                 }
 
                 Tab {
-                    title: "One"
-                    Themed.Text {text: "One"}
+                    title: "Lists"
+                    QP.Button {
+                        text: "Test"
+                        onClicked: {
+                            console.log(test_object.listProp)
+                            console.log(test_object.listProp[1])
+                        }
+                    }
                 }
                 Tab {
                     title: "Two"
-                    Themed.Text {text: "Two"}
+                    QP.Text {text: "Two"}
                 }
                 Tab {
                     title: "Three"
-                    Themed.Text {text: "Three"}
+                    QP.Text {text: "Three"}
                 }
             }
         }
 
-        Themed.StatusBar {
+        QP.StatusBar {
             id: testStatusBar
             anchors {
                 bottom: parent.bottom
@@ -268,7 +272,7 @@ Window {
                 right: parent.right
             }
 
-            Themed.Text {text: "Lorem ipsum dolor sit amet, consectetur adipiscing elit."}
+            QP.Text {text: "Lorem ipsum dolor sit amet, consectetur adipiscing elit."}
         }
     }
 
@@ -286,15 +290,15 @@ Window {
                 console.log(oldColor)
                 unbindColor()
             }
-            colorDialog.currentColor = Themed.Theme[name]
-            colorDialog.oldColor = Themed.Theme[name]
-            colorDialog.color = Themed.Theme[name]
-            Themed.Theme[name] = Qt.binding(function() {return colorDialog.currentColor})
+            colorDialog.currentColor = QP.Theme[name]
+            colorDialog.oldColor = QP.Theme[name]
+            colorDialog.color = QP.Theme[name]
+            QP.Theme[name] = Qt.binding(function() {return colorDialog.currentColor})
             boundColor = name
         }
 
         function unbindColor() {
-            Themed.Theme[boundColor] = oldColor
+            QP.Theme[boundColor] = oldColor
             boundColor = ""
         }
 

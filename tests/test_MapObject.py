@@ -296,3 +296,5 @@ class TestMapObject(TestCase):
         self.assertEqual(doc, {'one': 1, 'two': 2, 'three': {'four': 4}})
 
 
+
+

@@ -54,7 +54,8 @@ QP.Dialog {
         title: "Cupi Theme Editor"
         folds: false
         radius: 0
-        color: QP.Theme.backgroundColor
+        color: "transparent"
+        border.color: "transparent"
         anchors.fill: parent
         border.width: QP.Theme.borderWidthBig
         titlePointSize: QP.Theme.textPointSizeBig
