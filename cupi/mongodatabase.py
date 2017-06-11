@@ -1,4 +1,3 @@
-import cachetools
 import collections
 import itertools
 import pymongo
@@ -8,7 +7,7 @@ from bson.json_util import dumps as json_dumps
 from bson.codec_options import CodecOptions
 from tzlocal import get_localzone
 from .objects import *
-from .objectmodel import ObjectModel
+#from .objectmodel import ObjectModel
 import PyQt5.QtCore as qtc
 import PyQt5.QtQml as qtq
 
@@ -118,13 +117,6 @@ class MongoQuery(MapObject):
             return self.sort[role_name]
         except KeyError:
             return None
-
-
-########################################################################################################################
-
-
-class MongoObjectReference(MapObjectReference):
-    referencedId = Property(bson.ObjectId, 'referenced_id', default=None)
 
 
 ########################################################################################################################
@@ -446,12 +438,12 @@ class MongoDatabase(qtc.QObject):
     @qtc.pyqtSlot(str, MongoQuery, qtc.QObject, result=MapObject)
     def getObject(self, _type, query=None, parent=None):
         """Returns the first object matched by the query."""
-        _type = MapObject.subtype(_type)
+        _type = MapObject._subclass(_type)
         collection = self._db[_type.__collection__].with_options(codec_options=CodecOptions(tz_aware=True,
                                                                                             tzinfo=get_localzone()))
 
         query, sort = (query.query.document, query.sort.document) if query is not None else ({}, {})
-        query['_type'] = {'$in': [_type.__name__] + _type.all_subclass_names()}
+        query['_type'] = {'$in': [_type.__name__] + _type._all_subclass_names()}
 
         doc = collection.find_one(query, modifiers={'$orderby': sort})
         obj = MapObject.from_document(doc, default_type=_type, parent=parent) if doc else None
@@ -463,12 +455,12 @@ class MongoDatabase(qtc.QObject):
     @qtc.pyqtSlot(str, MongoQuery, qtc.QObject, result=MongoObjectCursor)
     def getCursor(self, _type, query=None, parent=None):
         """Return a MongoObjectCursor resulting from the given query."""
-        _type = MapObject.subtype(_type)
+        _type = MapObject._subclass(_type)
         collection = self._db[_type.__collection__].with_options(codec_options=CodecOptions(tz_aware=True,
                                                                                             tzinfo=get_localzone()))
 
         query, sort = (query.query.document, query.sort.document) if query is not None else ({}, {})
-        query['_type'] = {'$in': [_type.__name__] + _type.all_subclass_names()}
+        query['_type'] = {'$in': [_type.__name__] + _type._all_subclass_names()}
 
         cursor = collection.find(query, modifiers={'$orderby': sort}, no_cursor_timeout=True)
 
@@ -477,7 +469,7 @@ class MongoDatabase(qtc.QObject):
     @qtc.pyqtSlot(str, MongoQuery, qtc.QObject, result=ObjectModel)
     def getModel(self, _type, query=None, parent=None, **kwargs):
         """Return the results of a query in an ObjectModel."""
-        _type = MapObject.subtype(_type)
+        _type = MapObject._subclass(_type)
         cursor = self.getCursor(_type, query)
         if cursor is not None:
             return CursorObjectModel(_type=_type, cursor=cursor, parent=parent, **kwargs)
@@ -588,7 +580,7 @@ class MongoDatabase(qtc.QObject):
         self.statusMessage = 'Done.'
         return True
 
-    @qtc.pyqtSlot(MongoObjectReference, qtc.QObject, result=MapObject)
+    @qtc.pyqtSlot(MapObjectReference, qtc.QObject, result=MapObject)
     def getReferencedObject(self, ref, parent=None):
         """Loads an object into a MongoObjectReference."""
         obj = self.getObject(ref.referencedType or type(ref).referencedType,
@@ -612,7 +604,7 @@ class MongoDatabase(qtc.QObject):
             raise TypeError('Expected mapping or sequence, got %s' % type(obj))
 
         for item in items:
-            if isinstance(item, MongoObjectReference) and (item.autoLoad or load_all):
+            if isinstance(item, MapObjectReference) and (item.autoLoad or load_all):
                 try:
                     item.ref = already_loaded[item.referencedId]
                 except KeyError:

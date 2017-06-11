@@ -1,13 +1,11 @@
 from .objects import *
-from .objectmodel import *
+#from .objectmodel import *
 from .mongodatabase import *
 from .application import *
 
 __version__ = '0.1.0'
 
-__all__ = ['DocumentObject',
-           'ListObject',
-           'MapObject',
+__all__ = ['MapObject',
            'Property',
            'MapObjectProperty',
            'MapObjectReference',
@@ -16,5 +14,4 @@ __all__ = ['DocumentObject',
            'MongoObjectCursor',
            'CursorObjectModel',
            'MongoDatabase',
-           'App',
-           'MongoObjectReference']
+           'App']
