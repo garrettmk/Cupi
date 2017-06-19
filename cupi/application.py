@@ -1,12 +1,7 @@
-import sys
-import PyQt5.QtCore as qtc
-import PyQt5.QtGui as qtg
-import PyQt5.QtQml as qtq
 import PyQt5.QtWidgets as qtw
 
 from .mongodatabase import *
 from .objects import *
-from .objectmodel import *
 
 
 class App(qtw.QApplication):
@@ -20,6 +15,22 @@ class App(qtw.QApplication):
     @property
     def engine(self):
         return self._qml_engine
+
+    def register_class(self, cls, descendants=False, _already_registered=None):
+        """Registers a class with the QML engine."""
+        _already_registered = [] if _already_registered is None else _already_registered
+
+        version_major = getattr(cls, '__version_major__', 1)
+        version_minor = getattr(cls, '__version_minor__', 0)
+        uri = getattr(cls, '__qml_uri__', cls.__name__)
+
+        qtq.qmlRegisterType(cls, uri, version_major, version_minor, cls.__name__)
+        _already_registered.append(cls)
+
+        if descendants:
+            for subcls in cls.__subclasses__():
+                if subcls not in _already_registered:
+                    self.register_class(subcls, descendants=True, _already_registered=_already_registered)
 
     def prepare(self, load_file=None, organization=None, application=None, cupi_path=None, auto_register=True):
         """Prepare the application to run."""
@@ -39,7 +50,8 @@ class App(qtw.QApplication):
 
         # Register subtypes
         if auto_register:
-            self.register_subclasses(DocumentObject, MongoDatabase)
+            for cls in [MapObject, ObjectModel, MongoDatabase]:
+                self.register_class(cls, descendants=True)
 
         # Prepare the root context
         context = self._qml_engine.rootContext()
@@ -48,25 +60,6 @@ class App(qtw.QApplication):
         # Load the main QML file
         if load_file is not None:
             self._qml_engine.load(load_file)
-
-    @staticmethod
-    def _all_subclasses(cls):
-        """Return a list of all the subclasses of cls."""
-        return cls.__subclasses__() + [desc for base in cls.__subclasses__() for desc in App._all_subclasses(base)]
-
-    def register_subclasses(self, *args):
-        """Registers all subclasses of cls with the QML engine."""
-        for cls in args:
-            for sub in App._all_subclasses(cls):
-                self.register_class(sub)
-
-    def register_class(self, cls):
-        """Registers a class with the QML engine."""
-        version_major = getattr(cls, '__version_major__', 1)
-        version_minor = getattr(cls, '__version_minor__', 0)
-        uri = getattr(cls, '__qml_uri__', cls.__name__)
-
-        qtq.qmlRegisterType(cls, uri, version_major, version_minor, cls.__name__)
 
     def prepare_root_context(self, context):
         """Prepare the root context before loading the main QML file. Provided by subclasses."""

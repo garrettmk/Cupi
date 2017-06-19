@@ -7,7 +7,6 @@ from bson.json_util import dumps as json_dumps
 from bson.codec_options import CodecOptions
 from tzlocal import get_localzone
 from .objects import *
-#from .objectmodel import ObjectModel
 import PyQt5.QtCore as qtc
 import PyQt5.QtQml as qtq
 
@@ -18,38 +17,33 @@ import PyQt5.QtQml as qtq
 class MongoQuery(MapObject):
     """Helper object for generating and saving Mongo query documents."""
     queryChanged = qtc.pyqtSignal()
-    query = MapObjectProperty(MapObject, '$query')
+    query = MapObjectProperty('$query', notify=queryChanged, default={})
 
     sortChanged = qtc.pyqtSignal()
-    sort = MapObjectProperty(MapObject, '$orderby')
-
-    def requestedIds(self):
-        """Returns a list of id's requested by the query. For example, for the query {'_id': 1234}, requestedIds
-         would return [1234]."""
-        idq = self.query.get('_id', None)
-
-        if idq is None:
-            return []
-        elif isinstance(idq, bson.ObjectId):
-            return [idq]
-        elif isinstance(idq, collections.Mapping):
-            return [i for i in itertools.chain(idq.get('$in', []),
-                                               idq.get('$and', []),
-                                               idq.get('$or', []))]
+    sort = MapObjectProperty('$orderby', notify=sortChanged, default={})
 
     @qtc.pyqtSlot(str, qtc.QVariant)
     def filterByValue(self, role_name, value):
         """Filter a role by a specific value."""
+        if role_name is None:
+            raise ValueError('role_name can not be None.')
+
         self.query[role_name] = value
 
     @qtc.pyqtSlot(str, result=qtc.QVariant)
     def getFilterValue(self, role_name):
         """Return the value for a specific role's filter."""
+        if role_name is None:
+            raise ValueError('role_name can not be None.')
+
         return self.query.get(role_name, None)
 
     @qtc.pyqtSlot(str, str)
     def filterByRegex(self, role_name, regex):
         """Filter a role using a regular expression."""
+        if role_name is None:
+            raise ValueError('role_name can not be None.')
+
         if regex:
             self.query[role_name] = {'$regex': regex, '$options': 'i'}
         else:
@@ -58,6 +52,8 @@ class MongoQuery(MapObject):
     @qtc.pyqtSlot(str, result=qtc.QVariant)
     def getFilterRegex(self, role_name):
         """Returns the regular expression used to filter a role."""
+        if role_name is None:
+            raise ValueError('role_name can not be None.')
         try:
             return self.query[role_name]['$regex']
         except KeyError:
@@ -65,7 +61,10 @@ class MongoQuery(MapObject):
 
     @qtc.pyqtSlot(str, float)
     def setFilterRangeMin(self, role_name, value):
-        if not value:
+        if role_name is None:
+            raise ValueError('role_name can not be None.')
+
+        if value is None:
             try:
                 del self.query[role_name]['$gte']
             except KeyError:

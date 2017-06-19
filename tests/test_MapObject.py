@@ -1,5 +1,6 @@
 import pytest
 import datetime
+import itertools
 import cupi as qp
 import PyQt5.QtCore as qtc
 import PyQt5.QtQml as qtq
@@ -11,16 +12,16 @@ import unittest.mock as mock
 
 class MapObjectSubclass(qp.MapObject):
     """Used for testing MapObject and MapProperty."""
-    testProperty = qp.Property(str, 'test_property')
+    testProperty = qp.Property('test_property', str)
 
     notifyPropertyChanged = qtc.pyqtSignal()
-    notifyProperty = qp.Property(bool, 'notify_property', notify=notifyPropertyChanged)
+    notifyProperty = qp.Property('notify_property', bool, notify=notifyPropertyChanged)
 
-    defaultProperty = qp.Property(str, 'default_property', default='default string')
-    defaultSetProperty = qp.Property(str, 'default_set_property', default_set='default_set string')
-    readOnlyProperty = qp.Property(str, 'read_only_property', read_only=True, default='read only string')
+    defaultProperty = qp.Property('default_property', str, default='default string')
+    defaultSetProperty = qp.Property('default_set_property', str, default_set='default_set string')
+    readOnlyProperty = qp.Property('read_only_property', str, read_only=True, default='read only string')
 
-    objectProperty = qp.MapObjectProperty(qp.MapObject, 'object_property')
+    objectProperty = qp.MapObjectProperty('object_property')
     listProperty = qp.ListProperty('list_property')
     datetimeProperty = qp.DateTimeProperty('datetime_property')
 
@@ -32,56 +33,45 @@ class SubclassReference(qp.MapObjectReference):
 
 ########################################################################################################################
 
-TEST_DOC = {'static': 1,
-            'modded': 2,
-            'deleted': 3,
-            'object': None,
-            '_id': 'test_id'}
 
-MOD_DOC = {'static': 1,
-           'modded': '2.0',
-           'object': None,
-           '_id': 'test_id'}
+STATIC_KEY = 'static'
+MODDED_KEY = 'modded'
+DELETED_KEY = 'deleted'
+OBJECT_KEY = 'object'
+ID_KEY = '_id'
+INVALID_KEY = 'aadsfsadfas'
+
+TEST_DOC = {STATIC_KEY: 1.414,
+            MODDED_KEY: 2.718,
+            DELETED_KEY: 3.14,
+            OBJECT_KEY: None,
+            ID_KEY: 'test_id'}
+
+
+@pytest.fixture(params=['clean', 'modded'])
+def mapobject_and_doc(request):
+    """Provides a MapObject in several different states."""
+    # Create a fake object and put it in the global documents
+    TEST_DOC[OBJECT_KEY] = mock.MagicMock(spec=qp.MapObject, modified=False, document={})
+    expected = dict(TEST_DOC)
+
+    mo = qp.MapObject(TEST_DOC)
+    mo.modifiedChanged = mock.MagicMock()
+
+    if request.param == 'clean':
+        pass
+    elif request.param == 'modded':
+        mo[MODDED_KEY] = '2.0'
+        expected[MODDED_KEY] = '2.0'
+
+        del mo[DELETED_KEY]
+        del expected[DELETED_KEY]
+
+    return (mo, expected)
 
 @pytest.fixture
 def mock_object():
     return mock.MagicMock(spec=qp.MapObject, modified=False, document={})
-
-@pytest.fixture
-def clean_map(mock_object):
-    """This fixture provides a fresh, unedited MapObject."""
-    TEST_DOC['object'] = mock_object
-    mo = qp.MapObject(TEST_DOC)
-    mo.modifiedChanged = mock.Mock()
-    assert not mo.modified
-    return mo
-
-@pytest.fixture
-def dirty_map(mock_object):
-    """This fixture provides a MapObject that has had a key deleted and a key changed. """
-    TEST_DOC['object'] = mock_object
-    MOD_DOC['object'] = mock_object
-    mo = qp.MapObject(TEST_DOC)
-    mo.modifiedChanged = mock.Mock()
-
-    for key, value in TEST_DOC.items():
-        if key not in MOD_DOC:
-            del mo[key]
-        elif value != MOD_DOC[key]:
-            mo[key] = MOD_DOC[key]
-
-    assert mo.modified
-    assert mo.modifiedChanged.emit.call_count == 1
-
-    return mo
-
-@pytest.fixture(params=['clean', 'dirty'])
-def mixed_map(request, clean_map, dirty_map):
-    """Provided for tests that are the same for clean and edited maps."""
-    if request.param == 'clean':
-        return clean_map
-    elif request.param == 'dirty':
-        return dirty_map
 
 @pytest.fixture
 def mapobject_subclass():
@@ -91,7 +81,8 @@ def mapobject_subclass():
 ########################################################################################################################
 
 
-def test_metaclass():
+def test_mapobject_metaclass():
+    """Test that MapObjectMetaclass is discovering subclasses and pyqtProperties."""
     assert 'MapObject' in qp.MapObjectMetaclass.subclasses
     assert 'MapObjectSubclass' in qp.MapObjectMetaclass.subclasses
     for _type in [qp.MapObject, MapObjectSubclass]:
@@ -102,329 +93,348 @@ def test_metaclass():
 ########################################################################################################################
 
 
-def test_init_parent():
-    """Check that the object provided by the keyword argument 'parent' is provided to the QObject constructor."""
-    parent = qtc.QObject()
-    test_object = qp.MapObject(parent=parent)
-    assert test_object.parent() is parent
+@pytest.mark.parametrize('parent', [True, None])
+@pytest.mark.parametrize('document', ['as doc', 'as keywords', None])
+@pytest.mark.parametrize('properties', [{'id': 'id value'}, None])
+@mock.patch('cupi.objects.MapObject._connect')
+def test_init(mock_connect, document, properties, parent):
+    """Test MapObject.__init__() with various combinations of arguments."""
+    test_args = []
+    test_kwargs = {}
+    expected_doc = dict(TEST_DOC)
 
-    test_object = qp.MapObject(parent=None)
-    assert test_object.parent() is None
+    # Build the args, kwargs, and expected result for the test call
+    if parent:
+        test_kwargs['parent'] = qtc.QObject()
 
+    if document == 'as doc':
+        test_args.append(TEST_DOC)
+    elif document == 'as keywords':
+        test_kwargs.update(TEST_DOC)
+    else:
+        expected_doc = {}
 
-def test_init_with_document():
-    """Create a MapObject using a dictionary."""
-    test_object = qp.MapObject(TEST_DOC)
-    for key, value in TEST_DOC.items():
-        assert test_object[key] == value
-    assert not test_object.modified
+    if properties is not None:
+        test_kwargs.update(properties)
+        expected_doc['_id'] = 'id value'
 
+    # Make the test call
+    test_object = qp.MapObject(*test_args, **test_kwargs)
 
-def test_init_with_properties():
-    """Check that properties can be assigned using keyword arguments to the constructor."""
-    test_object = qp.MapObject(id='test string')
-    # '_id' is used by the property setter, not 'id'
-    assert 'id' not in test_object
-    assert test_object.id == 'test string'
-    assert test_object.modified
-
-
-def test_init_with_keywords(mock_object):
-    """Check that keyword arguments, except 'parent' and keywords that match property names, are stored in the
-    map as key-value pairs."""
-    TEST_DOC['object'] = mock_object
-    test_object = qp.MapObject(**TEST_DOC)
-    assert not test_object.modified
-    for key, value in TEST_DOC.items():
-        assert key in test_object
+    # Check that the map object matches the document
+    assert len(test_object) == len(expected_doc)
+    for key, value in expected_doc.items():
         assert test_object[key] == value
 
-    assert 'object' in test_object
-    test_object['object'].setParent.assert_called_with(test_object)
-    test_object['object'].modifiedChanged.connect.assert_called_once()
+    # If no properties were specified, the map should be in an unmodified state
+    if properties is None:
+        assert not test_object.modified
+    else:
+        assert test_object.id == 'id value'
+
+    # Check that _connect was called on all elements
+    for value in expected_doc.values():
+        assert mock.call(value) in mock_connect.call_args_list
+
+    # Check that the object's parent is set correctly
+    if parent:
+        assert test_object.parent() is test_kwargs['parent']
+    else:
+        assert test_object.parent() is None
 
 
-def test_connect(mixed_map):
-    """Check that _connect() sets the object's parent and connects to it's modifiedChanged signal."""
-    mock_object = mock.Mock(spec=qp.MapObject)
-    mixed_map._connect(mock_object)
-    mock_object.setParent.assert_called_with(mixed_map)
-    mock_object.modifiedChanged.connect.assert_called_with(mixed_map.modifiedChanged)
+@pytest.mark.parametrize('obj', [None,
+                                 mock.Mock(),
+                                 mock.Mock(spec=qp.MapObject),
+                                 mock.Mock(spec=qp.ObjectModel),
+                                 mock.Mock(spec=MapObjectSubclass)])
+def test_connect(mapobject_and_doc, obj):
+    """Test the _connect() helper method."""
+    mapobject, expected = mapobject_and_doc
+
+    # Do the test call
+    mapobject._connect(obj)
+
+    # Check that valid objects were re-parented and connected to
+    # Everything else should be ignored.
+    if isinstance(obj, (qp.MapObject, qp.ObjectModel)):
+        obj.setParent.assert_called_with(mapobject)
+        obj.modifiedChanged.connect.assert_called_with(mapobject.modifiedChanged)
+    elif obj is not None:
+        assert not obj.method_calls
 
 
-def test_disconnect(mixed_map):
-    """Check that _disconnect() sets the object's parent to None and disconnects from the modifiedChanged signal."""
-    mock_object = mock.Mock(spec=qp.MapObject)
-    mixed_map._disconnect(mock_object)
-    mock_object.setParent.assert_called_with(None)
-    mock_object.modifiedChanged.disconnect.assert_called_with(mixed_map.modifiedChanged)
+@pytest.mark.parametrize('obj', [None,
+                                 mock.Mock(),
+                                 mock.Mock(spec=qp.MapObject),
+                                 mock.Mock(spec=qp.ObjectModel),
+                                 mock.Mock(spec=MapObjectSubclass)])
+def test_disconnect(mapobject_and_doc, obj):
+    """Test the _disconnect() helper method."""
+    mapobject, expected = mapobject_and_doc
+
+    # Do the test call
+    mapobject._disconnect(obj)
+
+    # Check that valid objects were disconnected and de-parented
+    # Everything else should be ignored.
+    if isinstance(obj, (qp.MapObject, qp.ObjectModel)):
+        obj.setParent.assert_called_with(None)
+        obj.modifiedChanged.disconnect.assert_called_with(mapobject.modifiedChanged)
+    elif obj is not None:
+        assert not obj.method_calls
 
 
-def test_getitem_valid(clean_map):
-    """Check that __getitem__() can retrieve a value for a valid key."""
-    assert clean_map['static'] == TEST_DOC['static']
+def test_getitem(mapobject_and_doc):
+    """Test the __getitem__() method."""
+    mapobject, expected = mapobject_and_doc
+
+    for key in TEST_DOC:
+        if key in expected:
+            assert mapobject[key] == expected[key]
+        else:
+            with pytest.raises(KeyError):
+                mapobject[key]
 
 
-def test_getitem_invalid(mixed_map):
-    """Check that __getitem__() throws a KeyError exception when used with a nonexistent key."""
+@pytest.mark.parametrize('key', [MODDED_KEY, DELETED_KEY, OBJECT_KEY])
+@mock.patch('cupi.objects.MapObject._connect')
+@mock.patch('cupi.objects.MapObject._disconnect')
+def test_setitem(mock_disconnect, mock_connect, mapobject_and_doc, mock_object, key):
+    """Test the __setitem__() method."""
+    mapobject, expected = mapobject_and_doc
+    was_modified = expected != TEST_DOC
+
+    # Do the test call
+    mapobject[key] = mock_object
+    assert mapobject[key] is mock_object
+
+    # If the map wasn't already modified, it should be modified now
+    if not was_modified:
+        assert mapobject.modified
+        assert mapobject.modifiedChanged.emit.called_once
+
+    # The map should connect to new objects
+    assert mock.call(mock_object) in mock_connect.call_args_list
+
+    # If the new value replaces an object, the map should disconnect from it
+    if key == OBJECT_KEY:
+        assert mock.call(expected[key]) in mock_disconnect.call_args_list
+
+
+@pytest.mark.parametrize('key', [MODDED_KEY, DELETED_KEY, OBJECT_KEY, INVALID_KEY])
+@mock.patch('cupi.objects.MapObject._disconnect')
+def test_delitem(mock_disconnect, mapobject_and_doc, key):
+    """Test the __delitem__() method."""
+    mapobject, expected = mapobject_and_doc
+    was_modified = expected != TEST_DOC
+
+    # Do the test call
+    if key in expected:
+        del mapobject[key]
+    else:
+        with pytest.raises(KeyError):
+            del mapobject[key]
+
     with pytest.raises(KeyError):
-        mixed_map['bad key']
+        mapobject[key]
+
+    # If the map wasn't modified before, it should be now
+    if not was_modified and key != INVALID_KEY:
+        assert mapobject.modified
+        assert mapobject.modifiedChanged.emit.called_once
+
+    # Deleted objects should be disconnected
+    if key == OBJECT_KEY:
+        assert mock.call(expected[key]) in mock_disconnect.call_args_list
 
 
-def test_getitem_modified(dirty_map):
-    """Check that __getitem__() correctly retrieves modified keys."""
-    assert dirty_map['modded'] == '2.0'
+@pytest.mark.parametrize('key', [MODDED_KEY, DELETED_KEY, INVALID_KEY])
+@pytest.mark.parametrize('default', [3, lambda self: 3, None])
+@pytest.mark.parametrize('default_set', [True, False, None])
+@pytest.mark.parametrize('enforce_type,convert_type', [(str, None),
+                                                       (str, lambda s, v: str(v)),
+                                                       (None, None)])
+def test_getvalue(mapobject_and_doc, key, default, default_set, enforce_type, convert_type):
+    """Test the getValue() method."""
+    mapobject, expected = mapobject_and_doc
+    test_kwargs = {}
+
+    # Build the test call arguments
+    if default is not None:
+        test_kwargs['default'] = default
+
+    if default_set is not None:
+        test_kwargs['default_set'] = default_set
+
+    if enforce_type is not None:
+        test_kwargs['enforce_type'] = enforce_type
+
+    if convert_type is not None:
+        test_kwargs['convert_type'] = convert_type
+
+    # Determine the value that should be returned
+    if key in expected:
+        expected_value = expected[key]
+    elif default is not None:
+        expected_value = default(mapobject) if callable(default) else default
+    else:
+        expected_value = None
+
+    if enforce_type is not None:
+        expected_value = enforce_type(expected_value)
+
+    # Do the test call
+    if key in expected or default is not None:
+        returned_value = mapobject.getValue(key, **test_kwargs)
+    else:
+        with pytest.raises(KeyError):
+            mapobject.getValue(key)
+        return
+
+    assert returned_value == expected_value
+
+    # Check that default_set was used correctly
+    if default_set is True \
+            and default is not None \
+            and key not in expected:
+        assert key in mapobject
+        assert mapobject[key] == expected_value
 
 
-def test_getitem_deleted(dirty_map):
-    """Check that __getitem__() throws a KeyError when accessing a deleted key."""
-    with pytest.raises(KeyError):
-        dirty_map['deleted']
+@pytest.mark.parametrize('key', [MODDED_KEY, DELETED_KEY, OBJECT_KEY, INVALID_KEY])
+@pytest.mark.parametrize('value', [42, qtq.QJSValue(42), mock.MagicMock(spec=qp.MapObject),
+                                   mock.MagicMock(spec=qp.ObjectModel)])
+@pytest.mark.parametrize('mock_signals', [[], [mock.Mock()], [mock.Mock(), mock.Mock()]])
+def test_setvalue(mapobject_and_doc, key, value, mock_signals):
+    """Test the setValue() method."""
+    mapobject, expected = mapobject_and_doc
+
+    mapobject.setValue(key, value, *mock_signals)
+
+    if isinstance(value, qtq.QJSValue):
+        assert mapobject[key] == value.toVariant()
+    else:
+        assert mapobject[key] == value
+
+    for sig in mock_signals:
+        assert sig.emit.called_once
 
 
-def test_setitem_exists(mixed_map):
-    """Check that __setitem__() can modify keys."""
-    mock_object = mock.Mock(spec=qp.MapObject)
-    mixed_map['modded'] = mock_object
-    assert mixed_map['modded'] is mock_object
-    mock_object.setParent.assert_called_with(mixed_map)
-    mock_object.modifiedChanged.connect.assert_called_with(mixed_map.modifiedChanged)
+def test_iter(mapobject_and_doc):
+    """Test the __iter__() method."""
+    mapobject, expected = mapobject_and_doc
+    assert list(iter(mapobject)) == list(expected)
 
 
-def test_setitem_new(mixed_map):
-    """Check that __setitem__() can create new keys."""
-    mock_object = mock.Mock(spec=qp.MapObject)
-    mixed_map['new key'] = mock_object
-    assert mixed_map['new key'] == mock_object
-    mock_object.setParent.assert_called_with(mixed_map)
-    mock_object.modifiedChanged.connect.assert_called_with(mixed_map.modifiedChanged)
+def test_len(mapobject_and_doc):
+    """Test the __len__() method."""
+    mapobject, expected = mapobject_and_doc
+    assert len(mapobject) == len(expected)
 
 
-def test_setitem_reset(clean_map):
-    """Check that __setitem__() can restore deleted keys."""
-    assert not clean_map.modified
-    del clean_map['deleted']
-    assert clean_map.modified
-    assert 'deleted' not in clean_map
-    clean_map['deleted'] = TEST_DOC['deleted']
-    assert not clean_map.modified
+def test_items(mapobject_and_doc):
+    """Test the items() method."""
+    mapobject, expected = mapobject_and_doc
+    assert list(mapobject.items()) == list(expected.items())
 
 
-def test_delitem(mixed_map):
-    """Check that __delitem__() can delete unmodified keys."""
-    del mixed_map['modded']
-    assert 'modded' not in mixed_map
+def test_values(mapobject_and_doc):
+    """Test the values() method."""
+    mapobject, expected = mapobject_and_doc
+    assert list(mapobject.values()) == list(expected.values())
 
 
-def test_delitem_nonexistent(mixed_map):
-    """Check that __delitem__() raises KeyError when given a nonexistent key."""
-    with pytest.raises(KeyError):
-        del mixed_map['bad key']
-
-
-def test_delitem_twice(dirty_map):
-    """Check that __delitem__() raises KeyError when used twice on the same key."""
-    with pytest.raises(KeyError):
-        del dirty_map['deleted']
-
-
-def test_getValue_valid(mixed_map):
-    """Check that getValue() can retrieve values from the map."""
-    assert mixed_map.getValue('static') == 1
-
-
-def test_getValue_invalid(mixed_map):
-    """Check that getValue() throws an KeyError when given an invalid key."""
-    with pytest.raises(KeyError):
-       assert mixed_map.getValue('bad key')
-
-
-def test_getValue_modded(dirty_map):
-    """Check that getValue() correctly retrieves modified values."""
-    assert dirty_map['modded'] == '2.0'
-
-
-def test_getValue_deleted(dirty_map):
-    """Check that getValue() raises KeyError when retrieving a key that has been deleted."""
-    with pytest.raises(KeyError):
-        dirty_map['deleted']
-
-
-def test_getValue_default(mixed_map):
-    """Check that getValue() returns the given default value when provided key is not in the map."""
-    assert mixed_map.getValue('bad key', default='cool') == 'cool'
-    assert 'bad key' not in mixed_map
-
-
-def test_getValue_default_callable(mixed_map):
-    """Check that getValue() uses a given callable to provide the default value."""
-    default_mock = mock.Mock(return_value=5)
-    assert mixed_map.getValue('bad key', default=default_mock) == 5
-    assert default_mock.called
-
-
-def test_getValue_default_set(mixed_map):
-    """Check that getValue() inserts the default value into the map, if the provided key is not already there."""
-    assert mixed_map.getValue('new key', default_set='cool') == 'cool'
-    assert 'new key' in mixed_map and mixed_map['new key'] == 'cool'
-
-
-def test_getValue_default_set_callable(mixed_map):
-    """Check that getValue() uses a given callable to provide a default value for a missing key."""
-    default_mock = mock.Mock(return_value=5)
-    assert mixed_map.getValue('new key', default_set=default_mock) == 5
-    assert default_mock.called
-    assert 'new key' in mixed_map and mixed_map['new key'] == 5
-
-
-def test_getValue_enforce_type(mixed_map):
-    """Check that getValue() will convert the value type if the enforce_type keyword is given."""
-    assert mixed_map.getValue('modded', enforce_type=float) == 2.0
-    assert type(mixed_map['modded']) is float
-
-
-def test_getValue_enforce_type_with_convert(mixed_map):
-    """Check the getValue() uses a given convert function when enforcing types."""
-    convert_mock = mock.Mock(return_value=1.234)
-    assert mixed_map.getValue('modded', enforce_type=float, convert_type=convert_mock) == convert_mock.return_value
-    assert convert_mock.called
-    assert mixed_map.getValue('modded') == convert_mock.return_value
-    assert convert_mock.call_count == 1
-
-
-def test_setValue_exists(mixed_map):
-    """Test setValue() on an existing key."""
-    mixed_map.setValue('key1', 10)
-    assert mixed_map['key1'] == 10
-
-
-def test_setValue_nonexistent(mixed_map):
-    """Test setValue() on a key that doesn't already exist in the map."""
-    mixed_map.setValue('keyX', 'x')
-    assert 'keyX' in mixed_map
-    assert mixed_map['keyX'] == 'x'
-
-
-def test_setValue_with_signal(mixed_map):
-    """Test setValue() with a notify signal."""
-    mock_signal = mock.Mock()
-    mixed_map.setValue('key1', 10, mock_signal)
-    assert mixed_map['key1'] == 10
-    assert mock_signal.emit.called
-
-
-def test_setValue_QJSValue(mixed_map):
-    """Test the setValue() properly handles a QJSValue (as would be given by QML)."""
-    test_value = qtq.QJSValue(123)
-    mixed_map.setValue('key1', test_value)
-    assert type(mixed_map['key1']) is int
-    assert mixed_map['key1'] == 123
-
-
-def test_iter_clean(clean_map):
-    """Check that __iter__() gives us an iterator for the map's keys."""
-    assert list(iter(clean_map)) == list(TEST_DOC)
-
-
-def test_iter_dirty(dirty_map):
-    assert list(iter(dirty_map)) == list(MOD_DOC)
-
-
-def test_len(clean_map):
-    """Check that using len() works correctly."""
-    assert len(clean_map) == len(TEST_DOC)
-
-
-def test_items_clean(clean_map):
-    """Check that items() gives us a valid iterator."""
-    assert list(clean_map.items()) == list(TEST_DOC.items())
-
-
-def test_items_dirty(dirty_map):
-    assert list(dirty_map.items()) == list(MOD_DOC.items())
-
-
-def test_values_clean(clean_map):
-    """Check that values() gives us an iterator for the map's values."""
-    assert list(clean_map.values()) == list(TEST_DOC.values())
-
-
-def test_values_dirty(dirty_map):
-    assert list(dirty_map.values()) == list(MOD_DOC.values())
-
-
-def test_modified_clean(clean_map):
+def test_modified(mapobject_and_doc):
     """Test the modified property."""
-    assert not clean_map.modified
+    mapobject, expected = mapobject_and_doc
+
+    if expected == TEST_DOC:
+        assert not mapobject.modifiedChanged.emit.called
+        assert not mapobject.modified
+    else:
+        assert mapobject.modifiedChanged.emit.called
+        assert mapobject.modified
 
 
-def test_modified_dirty(dirty_map):
-    assert dirty_map.modified
+@pytest.mark.parametrize('method', ['apply', 'revert'])
+def test_apply_revert(mapobject_and_doc, method):
+    """Test the apply() and revert() methods."""
+    mapobject, expected = mapobject_and_doc
+    was_modified = expected != TEST_DOC
+    mapobject.modifiedChanged.emit.reset_mock()
+
+    if method == 'apply':
+        expected_result = expected
+        mapobject.apply()
+    elif method == 'revert':
+        expected_result = TEST_DOC
+        mapobject.revert()
+
+    assert not mapobject.modified
+    assert len(mapobject) == len(expected_result)
+    if was_modified:
+        assert mapobject.modifiedChanged.emit.called_once
+
+    for key in expected_result:
+        assert mapobject[key] == expected_result[key]
 
 
-def test_apply_dirty(dirty_map):
-    """Test the apply() method."""
-    dirty_map.apply()
-    assert not dirty_map.modified
-    assert dirty_map.modifiedChanged.emit.call_count == 2
-    assert list(dirty_map.items()) == list(MOD_DOC.items())
+def test_document(mapobject_and_doc):
+    """Test the document property."""
+    mapobject, expected = mapobject_and_doc
+    expected[OBJECT_KEY] = expected[OBJECT_KEY].document
+
+    assert mapobject.document == expected
 
 
-def test_revert(dirty_map):
-    """Test the revert() method."""
-    dirty_map.revert()
-    assert not dirty_map.modified
-    assert dirty_map.modifiedChanged.emit.call_count == 2
-    assert list(dirty_map.items()) == list(TEST_DOC.items())
-
-
-def test_document_clean(clean_map):
-    """Test the document() method."""
-    doc = dict(TEST_DOC)
-    doc['object'] = doc['object'].document
-    assert clean_map.document == doc
-
-
-def test_document_dirty(dirty_map):
-    doc = dict(MOD_DOC)
-    doc['object'] = doc['object'].document
-    assert dirty_map.document == doc
-
-
-def test_id_getter(mixed_map):
-    """Test the id property getter."""
-    assert mixed_map.id == 'test_id'
-
-
-def test_id_setter(mixed_map):
-    """Test the id property setter."""
-    mixed_map.id = 'new id'
-    assert mixed_map.id == 'new id'
-
-
-def test_hasid(mixed_map):
-    """Test the hasId() method."""
-    assert mixed_map.hasId
-    del mixed_map['_id']
-    assert not mixed_map.hasId
-
-
-def test_from_document():
+@pytest.mark.parametrize('_type', [None, 'MapObjectSubclass'])
+@pytest.mark.parametrize('default_type', [None, MapObjectSubclass, 'MapObjectSubclass'])
+@pytest.mark.parametrize('extra_kwargs', [None, {'test_property': 'foo'}])
+def test_from_document(_type, default_type, extra_kwargs):
     """Test the from_document() class method."""
-    test_object = qp.MapObject.from_document(TEST_DOC, extra='foo')
-    for key, value in TEST_DOC.items():
-        assert test_object[key] == value
-    assert test_object['extra'] == 'foo'
+    test_kwargs = {}
+    doc = dict(TEST_DOC)
+    expected = dict(doc)
+
+    # Build the arguments for the test call, and determine the expected result
+    if _type is not None:
+        doc['_type'] = _type
+        expected['_type'] = _type
+
+    if default_type is not None:
+        test_kwargs['default_type'] = default_type
+        expected['_type'] = 'MapObjectSubclass'
+
+    if extra_kwargs is not None:
+        test_kwargs.update(extra_kwargs)
+        expected.update(extra_kwargs)
+
+    # Make the test call
+    return_value = qp.MapObject.from_document(doc, **test_kwargs)
+
+    # Make sure we get back a MapObject subclass in an unmodified state
+    if _type is not None or default_type is not None:
+        assert isinstance(return_value, MapObjectSubclass)
+    else:
+        assert isinstance(return_value, qp.MapObject)
+
+    assert not return_value.modified
+    assert len(return_value) == len(expected)
+    for key in expected:
+        assert return_value[key] == expected[key]
 
 
-def test_subclass():
+@pytest.mark.parametrize('_type', [None, 'invalid', 'MapObject', qp.MapObject, 'MapObjectSubclass', MapObjectSubclass])
+def test_subclass(_type):
     """Test the _subclass() class method."""
-    assert qp.MapObject._subclass('MapObjectSubclass') is MapObjectSubclass
-    assert qp.MapObject._subclass(MapObjectSubclass) is MapObjectSubclass
-    with pytest.raises(ValueError):
-        qp.MapObject._subclass('farts')
-    with pytest.raises(TypeError):
-        qp.MapObject._subclass(str)
+    if _type is None or _type == 'invalid':
+        with pytest.raises(ValueError):
+            qp.MapObject._subclass(_type)
+    elif _type == 'MapObject' or _type is qp.MapObject:
+        assert qp.MapObject._subclass(_type) is qp.MapObject
+    elif _type == 'MapObjectSubclass' or _type is MapObjectSubclass:
+        assert qp.MapObject._subclass(_type) is MapObjectSubclass
 
 
 def test_all_subclass_names():
@@ -432,88 +442,232 @@ def test_all_subclass_names():
     assert 'MapObjectSubclass' in qp.MapObject._all_subclass_names()
 
 
-def test_takes_ownership(mixed_map, mapobject_subclass):
-    """Check that MapObject takes ownership of other MapObject and ObjectModel objects when they are added to it."""
-    assert mixed_map.parent() is None
-    mapobject_subclass.objectProperty = mixed_map
-    assert mapobject_subclass.objectProperty is mixed_map
-    assert mixed_map.parent() is mapobject_subclass
-
-
 ########################################################################################################################
 
+@pytest.mark.parametrize('_type', [int, float, str, qp.MapObject, MapObjectSubclass])
+@pytest.mark.parametrize('default', ['default value', None])
+@pytest.mark.parametrize('default_set', [True, False, None])
+@pytest.mark.parametrize('fget', ['fget value', None])
+@pytest.mark.parametrize('fset', ['fset value', None])
+@pytest.mark.parametrize('read_only', [True, False, None])
+@pytest.mark.parametrize('enforce_type', ['enforce value', None])
+@pytest.mark.parametrize('convert_type', ['convert_value', None])
+@pytest.mark.parametrize('notify', [True, None])
+@mock.patch('cupi.objects.MapObject.getValue')
+@mock.patch('cupi.objects.MapObject.setValue')
+@mock.patch('PyQt5.QtCore.pyqtProperty', return_value='new pyqtProperty')
+def test_property(mock_property, mock_setvalue, mock_getvalue, _type, default, default_set, fget, fset, read_only,
+                  enforce_type, convert_type, notify):
+    """Test the Property convenience function."""
+    # Build a dictionary of keyword arguments so that we can filter out None's
+    if notify is not None:
+        notify_mock = mock.Mock()
+        notify_mock.__get__ = mock.Mock(return_value='notify signal')
+    else:
+        notify_mock = None
 
-def test_property(mapobject_subclass):
-    """Test that the Property function creates a valid pyqtProperty."""
-    # The property has not been set yet, so accessing it should raise an exception
-    with pytest.raises(KeyError):
-        mapobject_subclass.testProperty
+    test_kwargs = {'default': default,
+                   'default_set': default_set,
+                   'fget': fget,
+                   'fset': fset,
+                   'read_only': read_only,
+                   'notify': notify_mock,
+                   'enforce_type': enforce_type,
+                   'convert_type': convert_type}
+    test_kwargs = {k: v for k, v in test_kwargs.items() if v is not None}
 
-    # Set and get
-    mapobject_subclass.testProperty = 'check'
-    assert mapobject_subclass.testProperty == 'check'
+    # Call the function under test
+    return_value = qp.Property('test_key',
+                               _type,
+                               **test_kwargs)
+
+    # Gather data
+    prop_args = mock_property.call_args[0]
+    prop_kwargs = mock_property.call_args[1]
+    getter = prop_kwargs.pop('fget')
+    setter = prop_kwargs.pop('fset')
+
+    # Check that _type was passed along properly
+    assert prop_args == (_type,)
+
+    # If fget was provided, check that it was passed to pyqtProperty
+    # If not, analyze the behavior of the generated fget function
+    if fget is not None:
+        assert getter is fget
+    else:
+        # Call the generated getter so we can analyze how it calls getValue()
+        getter('self')
+        getter_args = mock_getvalue.call_args[0]
+        getter_kwargs = mock_getvalue.call_args[1]
+
+        # Check that self and key were used correctly
+        assert getter_args == ('self', 'test_key')
+
+        # Check the keyword arguments
+        if default is not None:
+            assert 'default' in getter_kwargs
+            assert getter_kwargs.pop('default') is default
+        else:
+            assert 'default' not in getter_kwargs
+
+        if default_set is not None:
+            assert 'default_set' in getter_kwargs
+            assert getter_kwargs.pop('default_set') is default_set
+        else:
+            assert 'default_set' not in getter_kwargs
+
+        if enforce_type is not None:
+            assert 'enforce_type' in getter_kwargs
+            assert getter_kwargs.pop('enforce_type') is enforce_type
+        else:
+            assert 'enforce_type' not in getter_kwargs
+
+        if convert_type is not None:
+            assert 'convert_type' in getter_kwargs
+            assert getter_kwargs.pop('convert_type') is convert_type
+
+        # Make sure there are no other arguments
+        assert not len(getter_kwargs)
+
+    # If fset was provided, check that it was passed to pyqtProperty
+    # If not, analyze the behavior of the generated fset function
+    if fset is not None and read_only is not True:
+        assert setter is fset
+    elif read_only is True:
+        assert setter is None
+    elif fset is None and read_only is not True:
+        # Call the generated fset function so we can analyze how it calls setValue()
+        setter('self', 'set value')
+        setter_args = mock_setvalue.call_args[0]
+        setter_kwargs = mock_setvalue.call_args[1]
+
+        # Check the keyword arguments
+        if notify is not None:
+            assert prop_kwargs['notify'] is test_kwargs['notify']
+            assert setter_args == ('self', 'test_key', 'set value', 'notify signal')
+        else:
+            assert setter_args == ('self', 'test_key', 'set value')
+
+        # There should be no keyword arguments for the setter
+        assert not len(setter_kwargs)
+
+    # If notify was given, check that it got passed to pyqtProperty
+    if notify is not None:
+        assert 'notify' in prop_kwargs
+        assert prop_kwargs['notify'] is prop_kwargs['notify']
+
+    # Check that pyqtProperty return value was returned from Property
+    assert return_value is mock_property.return_value
 
 
-def test_notify_property(mapobject_subclass):
-    """Test that property change signals are emitted when Property is used with the notify keyword."""
-    mock_slot = mock.Mock()
-    mapobject_subclass.notifyPropertyChanged.connect(mock_slot)
-    mapobject_subclass.notifyProperty = True
-    assert mock_slot.call_count == 1
+@pytest.mark.parametrize('test_func', [qp.MapObjectProperty, qp.ObjectModelProperty, qp.ListProperty, qp.DateTimeProperty])
+@pytest.mark.parametrize('_type', [qp.MapObject, MapObjectSubclass, None])
+@pytest.mark.parametrize('default', ['default value', None])
+@pytest.mark.parametrize('default_set', [True, False, None])
+@pytest.mark.parametrize('notify', ['notify value', None])
+@pytest.mark.parametrize('fget', ['fget value', None])
+@pytest.mark.parametrize('fset', ['fset value', None])
+@mock.patch('cupi.objects.Property')
+def test_property_convenience_functions(mock_property, test_func, _type, default, default_set, notify, fget, fset):
+    """Test the MapObjectProperty, ListProperty, and DateTimeProperty convenience functions."""
+    # Build a dictionary of arguments, and expected results
+    test_kwargs = {'default': default,
+                   'default_set': default_set,
+                   'notify': notify,
+                   'fget': fget,
+                   'fset': fset}
+    test_kwargs = {k: v for k, v in test_kwargs.items() if v is not None}
+    test_args = ['test_key']
 
+    expected_args = list(test_args)
+    expected_kwargs = dict(test_kwargs)
 
-def test_default_property(mapobject_subclass):
-    """Test that default values are provided when Property is used with the default keyword."""
-    assert mapobject_subclass.defaultProperty == 'default string'
-    assert 'default_property' not in mapobject_subclass
+    # Modify for individual test methods
+    if test_func is qp.MapObjectProperty:
+        if _type is not None:
+            test_kwargs['_type'] = _type
+            expected_args.append(_type)
+        else:
+            expected_args.append(qp.MapObject)
+        expected_kwargs['enforce_type'] = expected_args[-1]
 
+    if test_func is qp.ObjectModelProperty:
+        if _type is not None:
+            test_kwargs['_type'] = _type
 
-def test_default_set_property(mapobject_subclass):
-    """Test that default values are set when Property is used with the default_set keyword."""
-    assert 'default_set_property' not in mapobject_subclass
-    assert mapobject_subclass.defaultSetProperty == 'default_set string'
-    assert 'default_set_property' in mapobject_subclass
+        expected_args.append(qp.ObjectModel)
+        expected_kwargs['enforce_type'] = qp.ObjectModel
 
+    elif test_func is qp.ListProperty:
+        expected_args.append(qtc.QVariant)
+        expected_kwargs['enforce_type'] = list
 
-def test_read_only_property(mapobject_subclass):
-    """Test that attempting to set a property created with the read_only parameter throws an exception."""
-    with pytest.raises(AttributeError):
-        mapobject_subclass.readOnlyProperty = 'foo'
+    elif test_func is qp.DateTimeProperty:
+        expected_args.append(qtc.QDateTime)
+        expected_kwargs['enforce_type'] = datetime.datetime
 
+    else:
+        assert True, 'Unhandled test case'
 
-def test_mapobject_property(mapobject_subclass):
-    """Test the MapObjectProperty convenience function."""
-    assert 'object_property' not in mapobject_subclass
-    obj = mapobject_subclass.objectProperty
-    assert 'object_property' in mapobject_subclass
-    assert isinstance(obj, qp.MapObject)
-    assert obj.parent() is mapobject_subclass
+    # Make the call
+    return_value = test_func(*test_args, **test_kwargs)
 
+    # Gather data
+    prop_args = mock_property.call_args[0]
+    prop_kwargs = mock_property.call_args[1]
 
-def test_list_property(mapobject_subclass):
-    """Test the ListProperty convenience function."""
-    assert 'list_property' not in mapobject_subclass
-    obj = mapobject_subclass.listProperty
-    assert 'list_property' in mapobject_subclass
-    assert isinstance(obj, list)
+    # MapObjectProperty and ObjectModelProperty uses a default lambda, so check for that
+    if test_func is qp.MapObjectProperty:
+        if default is None:
+            default_value = prop_kwargs.pop('default')
+            assert callable(default_value)
+            assert type(default_value('self')) is expected_args[-1]
 
+        if default_set is None:
+            assert prop_kwargs.pop('default_set') is True
 
-def test_datetime_property(mapobject_subclass):
-    """Test the DateTimeProperty convenience function."""
-    # Test the default behavior
-    assert 'datetime_property' not in mapobject_subclass
-    obj = mapobject_subclass.datetimeProperty
-    assert 'datetime_property' in mapobject_subclass
-    assert isinstance(obj, datetime.datetime)
-    assert obj == datetime.datetime.fromtimestamp(0, datetime.timezone.utc)
+    if test_func is qp.ObjectModelProperty:
+        if default is None:
+            default_value = prop_kwargs.pop('default')
+            assert callable(default_value)
 
-    # Assign the property to a QDateTime object, and check that it is correctly converted to a datetime
-    qtime = qtc.QDateTime.fromTime_t(1434600360, qtc.Qt.OffsetFromUTC, -28800)
-    mapobject_subclass.datetimeProperty = qtime
+        if default_set is None:
+            assert prop_kwargs.pop('default_set') is True
 
-    obj = mapobject_subclass.datetimeProperty
-    assert isinstance(obj, datetime.datetime)
-    assert obj == datetime.datetime.fromtimestamp(1434600360, datetime.timezone(datetime.timedelta(hours=-8)))
+    # Check the args and kwargs
+    assert prop_args == tuple(expected_args)
+    assert len(prop_kwargs) == len(expected_kwargs) + 1
+
+    for key in expected_kwargs:
+        assert prop_kwargs[key] == expected_kwargs[key]
+
+    # Check the return value
+    assert return_value is mock_property.return_value
+
+    # Check the convert_type functions
+    if test_func is qp.MapObjectProperty:
+        test_doc = {'test_property': 'this is a test'}
+        mo = prop_kwargs['convert_type']('self', test_doc)
+        assert isinstance(mo, expected_args[1])
+        for k, v in test_doc.items():
+            assert mo[k] == v
+
+    elif test_func is qp.ListProperty:
+        test_doc = [1, 2, 3, 4, 5]
+        mo = prop_kwargs['convert_type']('self', test_doc)
+        assert isinstance(mo, list)
+        for mo_item, test_item in itertools.zip_longest(mo, test_doc):
+            assert mo_item == test_item
+
+    elif test_func is qp.DateTimeProperty:
+        qtime = qtc.QDateTime(qtc.QDate(2015, 6, 18),
+                              qtc.QTime(4, 6),
+                              qtc.Qt.OffsetFromUTC,
+                              -28800)
+        test_time = prop_kwargs['convert_type']('self', qtime)
+        assert isinstance(test_time, datetime.datetime)
+        assert test_time.tzinfo is datetime.timezone.utc
+        assert test_time.timestamp() == qtime.toTime_t()
 
 
 ########################################################################################################################
@@ -528,8 +682,9 @@ def test_reference_metaclass():
         assert prop_name + 'Changed' in ref_attrs
 
 
-def test_reference(clean_map):
+def test_reference(mapobject_and_doc):
     """Test the MapObjectReference object."""
+    mapobject, expected = mapobject_and_doc
     ref = qp.MapObjectReference()
 
     # Check the defaults
@@ -538,15 +693,16 @@ def test_reference(clean_map):
     assert ref.autoLoad is False
 
     # Assign an object
-    ref.ref = clean_map
+    ref.ref = mapobject
     assert ref.referentType == 'MapObject'
     assert ref.referentId == TEST_DOC['_id']
-    assert ref.ref is clean_map
+    assert ref.ref is mapobject
 
 
 def test_reference_subclass(mapobject_subclass):
     """Test SubclassReference."""
     ref = SubclassReference()
+    mock_slot = mock.Mock()
 
     with pytest.raises(AttributeError):
         ref.notifyProperty
@@ -554,3 +710,7 @@ def test_reference_subclass(mapobject_subclass):
     ref.ref = mapobject_subclass
     assert ref.ref is mapobject_subclass
     assert ref.notifyProperty == 'test value'
+
+    ref.notifyPropertyChanged.connect(mock_slot)
+    ref.notifyProperty = 'new value'
+    assert mock_slot.call_count == 1

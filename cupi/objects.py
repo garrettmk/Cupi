@@ -2,13 +2,6 @@ import abc, collections, datetime, itertools, sip, types
 import PyQt5.QtCore as qtc
 import PyQt5.QtQml as qtq
 from bson.json_util import dumps as json_dumps
-#from .objectmodel import ObjectModel
-
-########################################################################################################################
-
-
-class CupiObjectMetaclass(sip.wrappertype, abc.ABCMeta):
-    """A QObject-compatible metaclass """
 
 
 ########################################################################################################################
@@ -53,14 +46,12 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
     qml_minor_version = 0
 
     @staticmethod
-    def from_document(document, default_type=None, **kwargs):
+    def from_document(document, default_type='MapObject', **kwargs):
         """Creates a MapObject subclass from a document. If the appropriate subclass can't be determined from the
         document contents, default_type is used. If no default_type is provided, the object will be a MapObject.
         Any remaining arguments (such as parent) are passed on to the new object's constructor."""
         _type = document.get('_type', None)
-        object_type = MapObjectMetaclass.subclasses.get(_type, None) \
-                        or default_type \
-                        or MapObject
+        object_type = MapObjectMetaclass.subclasses.get(_type, None) or MapObject._subclass(default_type)
 
         return object_type(document, **kwargs)
 
@@ -74,10 +65,10 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
                 return MapObjectMetaclass.subclasses[_type]
             except KeyError:
                 raise ValueError('%s is not a valid subclass of MapObject.' % _type)
-        elif issubclass(_type, MapObject):
+        elif _type is not None and issubclass(_type, MapObject):
             return _type
         else:
-            raise TypeError('%s is not a subclass of MapObject.' % _type)
+            raise ValueError('%s is not a subclass of MapObject.' % _type)
 
     @classmethod
     def _all_subclass_names(cls):
@@ -152,24 +143,24 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
         """
         try:
             value = self[key]
-            enforce_type = kwargs.get('enforce_type', None)
-            if enforce_type is not None and type(value) is not enforce_type:
-                convert = kwargs.get('convert_type', None)
-                value = convert(self, value) if convert else enforce_type(value)
-                self[key] = value
-            return value
         except KeyError as e:
-            if 'default_set' in kwargs:
-                default = kwargs['default_set']
-                default = default(self) if callable(default) else default
-                self[key] = default
-                return default
-            elif 'default' in kwargs:
+            if 'default' in kwargs:
                 default = kwargs['default']
                 default = default(self) if callable(default) else default
-                return default
+                value = default
             else:
                 raise e
+
+        enforce_type = kwargs.get('enforce_type', None)
+        if enforce_type is not None and type(value) is not enforce_type:
+            convert = kwargs.get('convert_type', None)
+            value = convert(self, value) if convert else enforce_type(value)
+
+        if kwargs.get('default_set', False):
+            self[key] = value
+
+        return value
+
 
     @qtc.pyqtSlot(str, qtc.QVariant)
     def setValue(self, key, value, *args):
@@ -369,7 +360,7 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
 ########################################################################################################################
 
 
-def Property(type, key, fget=None, fset=None, read_only=False, **kwargs):
+def Property(key, _type, fget=None, fset=None, read_only=False, **kwargs):
     """Creates a property that uses MapObject's getValue() and setValue() functions as getter and setter. Supports
     defaults and notification signals. MapProperty() is a convenience wrapper for pyqtProperty().
 
@@ -389,30 +380,34 @@ def Property(type, key, fget=None, fset=None, read_only=False, **kwargs):
     fset_kwargs = {k:v for k, v in kwargs.items() if k in ['enforce_type']}
     kwargs = {k: v for k, v in kwargs.items() if (k not in fget_kwargs and k not in fset_kwargs)}
 
-    fget = fget or (lambda self: MapObject.getValue(self, key, **fget_kwargs))
+    fget = fget if fget is not None else (lambda self: MapObject.getValue(self, key, **fget_kwargs))
 
     if 'notify' in kwargs:
-        fset = fset or (lambda self, value: MapObject.setValue(self, key, value, kwargs['notify'].__get__(self)))
+        fset = fset if fset is not None else (lambda self, value: MapObject.setValue(self, key, value, kwargs['notify'].__get__(self)))
     else:
-        fset = fset or (lambda self, value: MapObject.setValue(self, key, value))
+        fset = fset if fset is not None else (lambda self, value: MapObject.setValue(self, key, value))
 
     if read_only:
         fset = None
 
-    return qtc.pyqtProperty(type, fget=fget, fset=fset, **kwargs)
+    return qtc.pyqtProperty(_type, fget=fget, fset=fset, **kwargs)
 
 
 ########################################################################################################################
 
 
-def MapObjectProperty(_type, key, **kwargs):
+def MapObjectProperty(key, _type=MapObject, **kwargs):
     """Convenience function for creating MapObject properties."""
-    kwargs.pop('default', None)
-    default_set = kwargs.get('default_set', None)
-    default_set = default_set if default_set is not None else lambda self: _type(parent=self)
-    convert_type = lambda self, value: _type(value, parent=self)
+    default = kwargs.pop('default', None) if 'default' in kwargs else lambda self: _type()
+    default_set = kwargs.pop('default_set', None) if 'default_set' in kwargs else True
+    convert_type = lambda self, value: _type(value)
 
-    return Property(_type, key, enforce_type=_type, convert_type=convert_type, default_set=default_set, **kwargs)
+    return Property(key, _type,
+                    enforce_type=_type,
+                    convert_type=convert_type,
+                    default=default,
+                    default_set=default_set,
+                    **kwargs)
 
 
 ########################################################################################################################
@@ -420,14 +415,8 @@ def MapObjectProperty(_type, key, **kwargs):
 
 def ListProperty(key, **kwargs):
     """Convenience function for creating ListObject properties."""
-    kwargs.pop('default', None)
-    kwargs.pop('fget', None)
-
-    default_set = kwargs.get('default_set', None)
-    default_set = default_set if default_set is not None else lambda self: list()
     convert_type = lambda self, value: list(value)
-
-    return Property(qtc.QVariant, key, enforce_type=list, convert_type=convert_type, default_set=default_set, **kwargs)
+    return Property(key, qtc.QVariant, enforce_type=list, convert_type=convert_type, **kwargs)
 
 
 ########################################################################################################################
@@ -435,19 +424,8 @@ def ListProperty(key, **kwargs):
 
 def DateTimeProperty(key, **kwargs):
     """Convenience function for create datetime/QDateTime properties."""
-    kwargs.pop('default', None)
-    kwargs.pop('fget', None)
-
-    default_set = kwargs.get('default_set', None)
-    default_set = default_set if default_set is not None else lambda self: datetime.datetime.fromtimestamp(0, datetime.timezone.utc)
     convert_type = lambda self, value: datetime.datetime.fromtimestamp(value.toSecsSinceEpoch(), datetime.timezone.utc)
-
-    return Property(qtc.QDateTime,
-                    key,
-                    enforce_type=datetime.datetime,
-                    convert_type=convert_type,
-                    default_set=default_set,
-                    **kwargs)
+    return Property(key, qtc.QDateTime, enforce_type=datetime.datetime, convert_type=convert_type, **kwargs)
 
 
 ########################################################################################################################
@@ -456,9 +434,9 @@ def DateTimeProperty(key, **kwargs):
 class MapObjectReferenceMetaclass(MapObjectMetaclass):
 
     def __init__(cls, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         ref_type = args[2]['referent_type']
         if ref_type == MapObject.__name__:
+            super().__init__(*args, **kwargs)
             return
 
         props = MapObjectMetaclass.properties[ref_type]
@@ -472,6 +450,8 @@ class MapObjectReferenceMetaclass(MapObjectMetaclass):
             setattr(cls, name + 'Changed', qtc.pyqtSignal())
             setattr(cls, name, qtc.pyqtProperty(qtc.QVariant, fget=fget, fset=fset))
 
+        super().__init__(*args, **kwargs)
+
 
 ########################################################################################################################
 
@@ -480,11 +460,20 @@ class MapObjectReference(MapObject, metaclass=MapObjectReferenceMetaclass):
     """Holds a reference to another object in the database."""
     referent_type = 'MapObject'
 
-    referentId = Property(qtc.QVariant, 'referent_id', default=None)
-    referentType = Property(str, 'referent_type', default=referent_type)
+    referentId = Property('referent_id', qtc.QVariant, default=None)
+    referentType = Property('referent_type', str, default=referent_type)
 
     autoLoadChanged = qtc.pyqtSignal()
-    autoLoad = Property(bool, 'auto_load', notify=autoLoadChanged, default=False)
+    autoLoad = Property('auto_load', bool, notify=autoLoadChanged, default=False)
+
+    def _mirrored_signals(self, obj):
+        signals = []
+        for prop in MapObjectMetaclass.properties[self.referentType]:
+            signal_name = prop + 'Changed'
+            if isinstance(getattr(obj, signal_name, None), qtc.pyqtBoundSignal) \
+                and hasattr(self, signal_name) and not hasattr(MapObject, signal_name):
+                signals.append(signal_name)
+        return signals
 
     def __init__(self, *args, **kwargs):
         """Initialize the object."""
@@ -500,6 +489,10 @@ class MapObjectReference(MapObject, metaclass=MapObjectReferenceMetaclass):
     @ref.setter
     def ref(self, item):
         """Sets the referenced item to item."""
+        if self._ref is not None:
+            for signal_name in self._mirrored_signals(self._ref):
+                getattr(self._ref, signal_name).disconnect(getattr(self, signal_name))
+
         if item is not None:
             if not isinstance(item, MapObject):
                 raise TypeError('Expected MapObject or subclass, got %s' % type(item))
@@ -507,6 +500,9 @@ class MapObjectReference(MapObject, metaclass=MapObjectReferenceMetaclass):
             self._ref = item
             self.referentId = item.id
             self.referentType = getattr(item, '_type', type(item).__name__)
+
+            for signal_name in self._mirrored_signals(item):
+                    getattr(item, signal_name).connect(getattr(self, signal_name))
         else:
             self._ref = None
             self.referentId = None
@@ -528,7 +524,7 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
     It also implements the collections.MutableSequence interface, so it can be used as a Python list as well.
     """
 
-    def __init__(self, _type, ref_type=None, objects=None, listen=True, parent=None):
+    def __init__(self, _type, objects=None, listen=True, parent=None):
         """Initializes the model. _type is a qp.Object subclass, which will be used to determine the role names
         the model provides. objects is the list of objects to use. If listen is True (the default) the model will
         connect to any property change signals the object type provides, and will translate those to dataChanged
@@ -547,28 +543,9 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
         # The type of object stored by the model
         self._type = MapObject._subclass(_type)
 
-        # If self._type is a kind of ObjectReference, self._ref_type is the type of object stored by the reference
-        # If ref_type is not provided, try to determine the type by asking reference type
-        if issubclass(self._type, MapObjectReference):
-            if ref_type is not None:
-                self._ref_type = MapObject._subclass(ref_type)
-            else:
-                try:
-                    self._ref_type = MapObject._subclass(self._type.referencedType)
-                except (AttributeError, ValueError, TypeError):
-                    raise TypeError('A valid reference type could not be determined.')
-        else:
-            self._ref_type = None
-
         # Discover property names for content and referenced objects and assign role numbers
         props = MapObjectMetaclass.properties[self._type.__name__]
         self._role_to_prop = {r: p for r, p in enumerate(props, qtc.Qt.UserRole)}
-
-        if self._ref_type is not None:
-            props = MapObjectMetaclass.properties[self._ref_type.__name__]
-            self._ref_role_to_prop = {r: p for r, p in enumerate(props, max(self._role_to_prop) + 1)}
-        else:
-            self._ref_role_to_prop = {}
 
         # Set the default column names
         self._column_to_role = {}
@@ -597,8 +574,7 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
         # Disconnect from the object currently in the list
         current = self[index]
         self._disconnect_from(current)
-        if current.parent() is self:
-            current.setParent(None)
+        current.setParent(None)
 
         # Replace the item in the list
         self._current[index] = item
@@ -727,10 +703,10 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
         was_modified = self._modified
         self._modified = None
 
+        self._original = list(self._current)
+
         for obj in self._current:
             obj.apply()
-
-        self._original = list(self._current)
 
         if self.modified != was_modified:
             self.modifiedChanged.emit()
@@ -741,10 +717,22 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
         was_modified = self._modified
         self._modified = None
 
+        # Re-connect and re-parent objects that were removed (which will be re-added)
+        deleted = self.deleted
+        for obj in deleted:
+            self._connect_to(obj)
+            obj.setParent(self)
+
+        # Objects that are going to be removed should be disconnected and re-parented
         for obj in self._current:
-            obj.revert()
+            if obj not in self._original:
+                self._disconnect_from(obj)
+                obj.setParent(None)
 
         self._current = list(self._original)
+
+        for obj in self._current:
+            obj.revert()
 
         if self.modified != was_modified:
             self.modifiedChanged.emit()
@@ -781,23 +769,20 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
             return qtc.QVariant()
 
         obj = self._current[index.row()]
-        if role not in self._role_to_prop and role not in self._ref_role_to_prop:
+        if role not in self._role_to_prop:
             role = self._column_to_role[index.column()]
 
-        if role in self._role_to_prop:
-                return getattr(obj, self._role_to_prop[role])
-        elif role in self._ref_role_to_prop:
-            return getattr(obj.ref, self._ref_role_to_prop[role])
+        return getattr(obj, self._role_to_prop[role])
 
     def roleNames(self):
         """Return a dictionary containing the indices and encoded role names of the roles this model recognizes.
         The role names correspond to the pyqtProperty they modfiy."""
-        return {k: v.encode() for k, v in itertools.chain(self._role_to_prop.items(), self._ref_role_to_prop.items())}
+        return {k: v.encode() for k, v in self._role_to_prop.items()}
 
     @qtc.pyqtSlot(str, result=int)
     def role(self, name):
         """Return the role (int) with a given name."""
-        for r, n in itertools.chain(self._role_to_prop.items(), self._ref_role_to_prop.items()):
+        for r, n in self._role_to_prop.items():
             if n == name:
                 return r
         else:
@@ -810,10 +795,8 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
         javascript array passed from QML; otherwise, it assumes the arguments are the names of the properties to use
         for the columns."""
         if not args:
-            self._column_to_role = {col: role for col, role in enumerate(itertools.chain(self._role_to_prop.keys(),
-                                                                                         self._ref_role_to_prop.keys()))}
-            self._column_names = [prop for prop in itertools.chain(self._role_to_prop.values(),
-                                                                   self._ref_role_to_prop.values())]
+            self._column_to_role = {col: role for col, role in enumerate(self._role_to_prop.keys())}
+            self._column_names = [prop for prop in self._role_to_prop.values()]
             return
 
         names = args[0].toVariant() if isinstance(args[0], qtc.QVariant) else list(map(lambda a: str(a), args))
@@ -822,12 +805,16 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
         self._column_to_role = {}
         for col, name in enumerate(names):
             try:
-                role = next(filter(lambda rn: rn[1] == name, itertools.chain(self._role_to_prop.items(),
-                                                                             self._ref_role_to_prop.items())))[0]
+                role = next(filter(lambda rn: rn[1] == name, self._role_to_prop.items()))
             except:
                 continue
 
             self._column_to_role[col] = role
+
+    @qtc.pyqtSlot(qtc.QVariant)
+    def columnNames(self):
+        """Return the model's column names as a list of strings."""
+        return list(self._column_names)
 
     @qtc.pyqtSlot(str, result=int)
     def fieldIndex(self, prop):
@@ -841,13 +828,8 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
         """Connects to an object's property change signals."""
         if obj is None:
             return
-        elif isinstance(obj, self._type):
-            roles = self._role_to_prop
-            self._connect_to(getattr(obj, 'ref', None))
-        elif isinstance(obj, self._ref_type):
-            roles = self._ref_role_to_prop
 
-        for num, name in roles.items():
+        for num, name in self._role_to_prop.items():
             signal_name = name + 'Changed'
 
             try:
@@ -855,86 +837,32 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
             except AttributeError:
                 continue
 
-            if roles is self._role_to_prop:
-                # if name not in self._slot_partials:
-                #     self._slot_partials[name] = self.onChildModified #lambda p=name: self.onChildModified(p)
-
-                signal.connect(self.onChildModified) #self._slot_partials[name])
-
-            if roles is self._ref_role_to_prop:
-                # if name not in self._ref_slot_partials:
-                #     self._ref_slot_partials[name] = self.onChildRefModified #lambda p=name: self.onChildRefModified(p)
-
-                signal.connect(self.onChildRefModified) #self._ref_slot_partials[name])
+            signal.connect(self.onChildModified)
 
     def _disconnect_from(self, obj):
         """Disconnects from an object's property change signals."""
         if obj is None:
             return
-        elif isinstance(obj, self._type):
-            roles = self._role_to_prop
-        elif isinstance(obj, self._ref_type):
-            roles = self._ref_role_to_prop
-            self._disconnect_from(getattr(obj, 'ref', None))
 
-        for num, name in roles.items():
+        for num, name in self._role_to_prop.items():
             signal_name = name + 'Changed'
 
             try:
                 signal = getattr(obj, signal_name)
-                signal.disconnect(self.onChildModified if roles is self._role_to_prop else self.onChildRefModified)
+                signal.disconnect(self.onChildModified)
             except (AttributeError, KeyError):
                 continue
 
-    def onChildModified(self, role_name=None):
+    def onChildModified(self):
         """Translates a child object's property change signal into a dataChanged signal, allowing views to react
         automatically to property changes."""
         sender = self.sender()
 
         try:
-            row = self._copy.index(sender)      # Have to access parent data member directly (index() is overridden
-                                                # by QAbstractItemModel)
+            row = self._current.index(sender)
         except ValueError:
             return
 
-        # try:
-        #     col = self._column_names.index(role_name)
-        # except ValueError:
-        #     col = 0
-        #
-        # roles = [r for r, p in self._role_to_prop.items() if p == role_name]
-        #
-        # index = self.createIndex(row, col)
-        # self.dataChanged.emit(index, index, roles)
-        index1 = self.createIndex(row, 0)
-        index2 = self.createIndex(row, self.columnCount() - 1)
-        self.dataChanged.emit(index1, index2)
-
-        before = self.modified
-        self._modified = None
-        if self.modified != before:
-            self.modifiedChanged.emit()
-
-    def onChildRefModified(self, role_name=None):
-        """Translates a referenced object's property change signals into dataChanged signals, allowing connected views
-        to update automatically."""
-        sender = self.sender()
-
-        for row, obj in enumerate(self):
-            if obj.ref is sender:
-                break
-        else:
-            return
-
-        # try:
-        #     col = self._column_names.index(role_name)
-        # except ValueError:
-        #     col = 0
-        #
-        # roles = [r for r, p in self._ref_role_to_prop.items() if p == role_name]
-        #
-        # index = self.createIndex(row, col)
-        # self.dataChanged.emit(index, index, roles)
         index1 = self.createIndex(row, 0)
         index2 = self.createIndex(row, self.columnCount() - 1)
         self.dataChanged.emit(index1, index2)
@@ -1003,15 +931,14 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
 ########################################################################################################################
 
 
-def ObjectModelProperty(_type, key, **kwargs):
+def ObjectModelProperty(key, _type=MapObject, **kwargs):
     """Shorthand for using MapProperty to create an ObjectModel property."""
-    kwargs.pop('default', None)
-    default_set = kwargs.get('default_set', None)
-    default_set = default_set if default_set is not None else lambda self: ObjectModel(_type, parent=self)
+    default = kwargs.pop('default', None) if 'default' in kwargs else lambda self: ObjectModel(_type)
+    default_set = kwargs.pop('default_set', None) if 'default_set' in kwargs else True
 
-    return Property(ObjectModel,
-                    key,
+    return Property(key, ObjectModel,
                     enforce_type=ObjectModel,
-                    convert_type=lambda self, value: ObjectModel(_type, objects=value, parent=self),
+                    convert_type=lambda self, value: ObjectModel(_type, objects=value),
+                    default=default,
                     default_set=default_set,
                     **kwargs)

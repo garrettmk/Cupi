@@ -1,5 +1,4 @@
 from .objects import *
-#from .objectmodel import *
 from .mongodatabase import *
 from .application import *
 
@@ -10,8 +9,9 @@ __all__ = ['MapObject',
            'MapObjectProperty',
            'MapObjectReference',
            'ObjectModel',
+           'ObjectModelProperty',
+           'MongoDatabase',
            'MongoQuery',
            'MongoObjectCursor',
            'CursorObjectModel',
-           'MongoDatabase',
            'App']
