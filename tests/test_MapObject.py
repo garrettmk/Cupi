@@ -388,6 +388,14 @@ def test_document(mapobject_and_doc):
     assert mapobject.document == expected
 
 
+def test_original(mapobject_and_doc):
+    """Test the original property."""
+    mapobject, expected = mapobject_and_doc
+    expected = TEST_DOC
+
+    assert mapobject.original == expected
+
+
 @pytest.mark.parametrize('_type', [None, 'MapObjectSubclass'])
 @pytest.mark.parametrize('default_type', [None, MapObjectSubclass, 'MapObjectSubclass'])
 @pytest.mark.parametrize('extra_kwargs', [None, {'test_property': 'foo'}])

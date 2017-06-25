@@ -141,25 +141,33 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
         assigned to key in the map before it is returned.
         If neither default nor default_set are provided, and the key is not found in the map, KeyError is raised.
         """
+        enforce_type = kwargs.get('enforce_type', lambda x: x)
+        convert_type = kwargs.get('convert_type', lambda self, v: enforce_type(v))
+
         try:
             value = self[key]
-        except KeyError as e:
+        except KeyError:
             if 'default' in kwargs:
-                default = kwargs['default']
-                default = default(self) if callable(default) else default
-                value = default
+                # Get the default value
+                default = kwargs.get('default')
+                value = default(self) if callable(default) else default
+
+                # Enforce type
+                value = enforce_type(value)
+
+                # Set value in the map if default_set is True
+                if kwargs.get('default_set', False):
+                    self[key] = value
+
+                return value
             else:
-                raise e
+                raise
+        else:
+            if type(value) is not enforce_type:
+                value = convert_type(self, value)
+                self[key] = value
 
-        enforce_type = kwargs.get('enforce_type', None)
-        if enforce_type is not None and type(value) is not enforce_type:
-            convert = kwargs.get('convert_type', None)
-            value = convert(self, value) if convert else enforce_type(value)
-
-        if kwargs.get('default_set', False):
-            self[key] = value
-
-        return value
+            return value
 
 
     @qtc.pyqtSlot(str, qtc.QVariant)
@@ -330,6 +338,11 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
                 response[key] = value
 
         return response
+
+    @property
+    def original(self):
+        """Return the original version of the document and sub-documents."""
+        return types.MappingProxyType(self._map)
 
     @qtc.pyqtSlot(result=str)
     def getDocumentText(self):
@@ -875,6 +888,10 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
     @property
     def document(self):
         return [o.document for o in self._current]
+
+    @property
+    def original(self):
+        return list(self._original)
 
     @property
     def deleted(self):

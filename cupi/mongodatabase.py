@@ -22,100 +22,104 @@ class MongoQuery(MapObject):
     sortChanged = qtc.pyqtSignal()
     sort = MapObjectProperty('$orderby', notify=sortChanged, default={})
 
-    @qtc.pyqtSlot(str, qtc.QVariant)
-    def filterByValue(self, role_name, value):
-        """Filter a role by a specific value."""
+    @staticmethod
+    def _clean(doc):
+        """Remove any empty sub-documents from the query."""
+        keys = list(doc.keys())
+
+        for key in keys:
+            value = doc[key]
+            is_mapping = isinstance(value, collections.Mapping)
+            is_list = isinstance(value, collections.Sequence) and not isinstance(value, str)
+
+            if is_mapping or is_list \
+                and len(value) == 0:
+                del doc[key]
+
+    @qtc.pyqtSlot(str, str, qtc.QVariant)
+    def filterBy(self, role_name, filter_type, condition):
+        """Filter a role using filter_type and condition."""
         if role_name is None:
             raise ValueError('role_name can not be None.')
 
-        self.query[role_name] = value
-
-    @qtc.pyqtSlot(str, result=qtc.QVariant)
-    def getFilterValue(self, role_name):
-        """Return the value for a specific role's filter."""
-        if role_name is None:
-            raise ValueError('role_name can not be None.')
-
-        return self.query.get(role_name, None)
-
-    @qtc.pyqtSlot(str, str)
-    def filterByRegex(self, role_name, regex):
-        """Filter a role using a regular expression."""
-        if role_name is None:
-            raise ValueError('role_name can not be None.')
-
-        if regex:
-            self.query[role_name] = {'$regex': regex, '$options': 'i'}
+        if filter_type == 'value':
+            self.query[role_name] = condition
+        elif filter_type == 'regex':
+            self.query[role_name] = {'$regex': condition, '$options': 'i'}
+        elif filter_type == 'range_min':
+            priors = self.query.get(role_name, {})
+            params = {'$gte': condition}
+            priors.update(params)
+            self.query[role_name] = priors
+        elif filter_type == 'range_max':
+            priors = self.query.get(role_name, {})
+            params = {'$lte': condition}
+            priors.update(params)
+            self.query[role_name] = priors
         else:
-            self.query.pop(role_name, None)
+            raise ValueError('Invalid filter type: ' + str(filter_type))
 
-    @qtc.pyqtSlot(str, result=qtc.QVariant)
-    def getFilterRegex(self, role_name):
-        """Returns the regular expression used to filter a role."""
-        if role_name is None:
-            raise ValueError('role_name can not be None.')
-        try:
-            return self.query[role_name]['$regex']
-        except KeyError:
-            return None
-
-    @qtc.pyqtSlot(str, float)
-    def setFilterRangeMin(self, role_name, value):
+    @qtc.pyqtSlot(str, str, result=qtc.QVariant)
+    def getFilter(self, role_name, filter_type):
+        """Return the condition used to filter a given role."""
         if role_name is None:
             raise ValueError('role_name can not be None.')
 
-        if value is None:
-            try:
-                del self.query[role_name]['$gte']
-            except KeyError:
-                return
-
-        priors = self.query.get(role_name, {})
-        params = {'$gte': value}
-        priors.update(params)
-        self.query[role_name] = priors
-
-    @qtc.pyqtSlot(str, float)
-    def setFilterRangeMax(self, role_name, value):
-        if not value:
-            try:
-                del self.query[role_name]['$lte']
-            except KeyError:
-                return
-
-        priors = self.query.get(role_name, {})
-        params = {'$lte': value}
-        priors.update(params)
-        self.query[role_name] = priors
-
-    @qtc.pyqtSlot(str, result=qtc.QVariant)
-    def getFilterRangeMin(self, role_name):
-        """Return the bottom limit of filter for the specified role."""
         try:
-            return self.query[role_name]['$gte']
+            if filter_type == 'value':
+                return self.query[role_name]
+            elif filter_type == 'regex':
+                return self.query[role_name]['$regex']
+            elif filter_type == 'range_min':
+                return self.query[role_name]['$gte']
+            elif filter_type == 'range_max':
+                return self.query[role_name]['$lte']
+            else:
+                raise ValueError('Invalid filter type: ' + str(filter_type))
         except KeyError:
             return None
 
-    @qtc.pyqtSlot(str, result=qtc.QVariant)
-    def getFilterRangeMax(self, role_name):
-        """Return the upper limit of the filter used for the specified role."""
+    @qtc.pyqtSlot(str)
+    def deleteFilter(self, role_name):
+        """Delete the filter for a given role."""
+        if role_name is None:
+            raise ValueError('role_name can not be None.')
+
         try:
-            return self.query[role_name]['$lte']
+            del self.query[role_name]
+            self._clean(self.query)
         except KeyError:
-            return None
+            pass
+
 
     @qtc.pyqtSlot(str, int)
-    def sortByRole(self, role_name, order):
+    def sortBy(self, role_name, order):
         """Sort the results by role, in ascending or descending order."""
-        self.sort[role_name] = 1 if order == qtc.Qt.AscendingOrder else -1
+        if order == qtc.Qt.AscendingOrder:
+            self.sort[role_name] = pymongo.ASCENDING
+        elif order == qtc.Qt.DescendingOrder:
+            self.sort[role_name] = pymongo.DESCENDING
+        else:
+            raise ValueError('Invalid sort order: ' + str(order))
+
 
     @qtc.pyqtSlot(str, result=qtc.QVariant)
     def getSortOrder(self, role_name):
         """Return the role used to sort query results."""
+        if role_name is None:
+            raise ValueError('role_name can not be None.')
+
         try:
-            return self.sort[role_name]
+            order = self.sort[role_name]
         except KeyError:
             return None
+
+        if order == pymongo.ASCENDING:
+            return qtc.Qt.AscendingOrder
+        elif order == pymongo.DESCENDING:
+            return qtc.Qt.DescendingOrder
+        else:
+            return order
 
 
 ########################################################################################################################
@@ -135,7 +139,6 @@ class MongoObjectCursor(qtc.QObject):
         self._count = cursor.count()
         self._it = iter(cursor)
         self._default_type = default_type
-        self._parent = kwargs.get('parent', None)
         self._done = False
 
     def __del__(self):
@@ -160,6 +163,7 @@ class MongoObjectCursor(qtc.QObject):
 
         except StopIteration:
             self._done = True
+            self.doneChanged.emit()
             raise
 
     def __len__(self):
@@ -213,20 +217,15 @@ class CursorObjectModel(ObjectModel):
     @qtc.pyqtSlot()
     def fetchMore(self, parent_idx=qtc.QModelIndex()):
         """Add another page of objects from the cursor to the model."""
-        new = []
-        for i in range(self._page_size):
-            obj = self._cursor.next()
-            if obj is None:
-                break
-            self._connect_to(obj)
-            obj.setParent(self)
-            new.append(obj)
-
         length = len(self)
-        newlength = length + len(new)
-        self.beginInsertRows(qtc.QModelIndex(), length, newlength)
-        self._original.extend(new)
-        self._copy.extend(new)
+        new_length = min(length + self._page_size, self.totalRows())
+        new_objects = [next(self._cursor) for i in range(new_length - length)]
+        if not new_objects:
+            return
+
+        self.beginInsertRows(qtc.QModelIndex(), length, new_length - 1)
+        self._original.extend(new_objects)
+        self._current.extend(new_objects)
         self.endInsertRows()
 
     @qtc.pyqtSlot(result=int)
@@ -247,75 +246,87 @@ class MongoDatabase(qtc.QObject):
     def escaped(doc):
         """Return a new document, identical to doc except all reserved characters in dictionary keys are escaped
         with their unicode full-with variants."""
-        MongoDatabase._escape_map = str.maketrans('$.', ''.join([chr(65284), chr(65294)]))
-        return MongoDatabase._escaped(doc)
+        escape_map = str.maketrans('$.', ''.join(['\uFF04', '\uFF0E']))
+        return MongoDatabase._escaped(doc, escape_map)
 
     @staticmethod
     def unescaped(doc):
         """Return a new document, identical to doc except all escaped characters in dictionary keys are restored
         to their original forms."""
-        MongoDatabase._escape_map = str.maketrans(''.join([chr(65284), chr(65294)]), '$.')
-        return MongoDatabase._escaped(doc)
+        escape_map = str.maketrans(''.join(['\uFF04', '\uFF0E']), '$.')
+        return MongoDatabase._escaped(doc, escape_map)
 
     @staticmethod
-    def _escaped(doc):
-        if isinstance(doc, str):
-            return doc.translate(MongoDatabase._escape_map)
-        elif isinstance(doc, collections.Mapping):
-            escaped = {}
+    def _escaped(doc, escape_map):
+        doc_is_string = isinstance(doc, str)
+        doc_is_map = isinstance(doc, collections.Mapping)
+        doc_is_sequence = isinstance(doc, collections.Sequence) and not doc_is_string
+
+        # If doc is a map, escape its keys and any sub-documents
+        if doc_is_map:
+            escaped_doc = {}
             for key, value in doc.items():
-                if isinstance(value, collections.Mapping) \
-                        or (isinstance(value, collections.Sequence) and not isinstance(value, str)):
-                    value = MongoDatabase._escaped(value)
+                key = key.translate(escape_map)
+                value = MongoDatabase._escaped(value, escape_map)
+                escaped_doc[key] = value
+            return escaped_doc
 
-                if isinstance(key, str):
-                    key = key.translate(MongoDatabase._escape_map)
-
-                escaped[key] = value
-        elif isinstance(doc, collections.Sequence):
-            escaped = []
+        # If doc is a sequence, escape any sub-documents
+        elif doc_is_sequence:
+            escaped_doc = []
             for item in doc:
-                if isinstance(item, collections.Mapping) \
-                        or (isinstance(item, collections.Sequence) and not isinstance(item, str)):
-                    item = MongoDatabase._escaped(item)
+                item = MongoDatabase._escaped(item, escape_map)
+                escaped_doc.append(item)
+            return escaped_doc
 
-                escaped.append(item)
+        # All other values just get returned
         else:
             return doc
 
-        return escaped
 
     @staticmethod
     def _updates(obj):
-        if isinstance(obj, ListObject):
-            return MongoDatabase._listobject_updates(obj)
-        elif isinstance(obj, MapObject):
+        is_obj_model = isinstance(obj, ObjectModel)
+        is_map_obj = isinstance(obj, MapObject)
+
+        if is_obj_model:
+            return MongoDatabase._objectmodel_updates(obj)
+        elif is_map_obj:
             return MongoDatabase._mapobject_updates(obj)
         else:
-            raise TypeError('%s is not a ListObject or MapObject.')
+            raise TypeError('%s is not a MapObject or ObjectModel.')
 
     @staticmethod
-    def _listobject_updates(obj):
-        """Build an update document from a ListObject."""
+    def _objectmodel_updates(model):
+        """Build an update document from an ObjectModel."""
         response = {'$set': {}, '$unset': {}}
+        original = model.original
 
-        original = obj.original
+        # If the new list is shorter than the original, just re-write the list
+        if len(model) < len(original):
+            response['$set'].update({'': model.document})
 
-        if len(obj) < len(original):
-            response['$set'].update({'': obj.document})
+        # If the new list is the same length or longer than the original, check each item
         else:
-            for idx, item in enumerate(obj):
-                if isinstance(item, DocumentObject):
-                    if idx < len(original) and item is original[idx]:
-                        updates = MongoDatabase._updates(item)
-                        response['$set'].update({'%s.%s' % (idx, k): v for k, v in updates.get('$set', {}).items()})
-                        response['$unset'].update({'%s.%s' % (idx, k): v for k, v in updates.get('$unset', {}).items()})
-                    else:
-                        response['$set'].update({str(idx): item.document})
-                else:
-                    if idx >= len(original) or item != original[idx]:
-                        response['$set'].update({str(idx): item})
+            for idx, obj in enumerate(model):
+                # If this item was in the original, add its updates
+                if idx < len(original) and obj is original[idx]:
+                    # Get this object's update doc
+                    obj_updates = MongoDatabase._updates(obj)
 
+                    # Format the $set and $unset fields
+                    obj_sets = {'%s.%s' % (idx, k): v for k, v in obj_updates.get('$set', {}).items()}
+                    obj_unsets = {'%s.%s' % (idx, k): v for k, v in obj_updates.get('$unset', {}).items()}
+
+                    # Add these to the response document
+                    response['$set'].update(obj_sets)
+                    response['$unset'].update(obj_unsets)
+
+                # This item was not in the original at this index, so write the whole object document
+                else:
+                    response['$set'].update({str(idx): obj.document})
+
+        # Clean up the response document
         if not response['$set']:
             del response['$set']
 

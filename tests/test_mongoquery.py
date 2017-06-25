@@ -1,6 +1,8 @@
 import pytest
 import unittest.mock as mock
 import cupi as qp
+import PyQt5.QtCore as qtc
+import pymongo
 
 ########################################################################################################################
 
@@ -20,71 +22,97 @@ def role(request):
 def value(request):
     return request.param
 
+FILTER_TYPES = ['value', 'regex', 'range_min', 'range_max']
+@pytest.fixture(params=FILTER_TYPES + ['INVALID'])
+def filter_type(request):
+    return request.param
+
 
 ########################################################################################################################
 
 
-def test_filterByValue(query, role, value):
-    """Test the filterByValue() method."""
-    if role is None:
+@pytest.mark.parametrize('test_doc', [{}, [], {'sub': {}}, {'sub': []}])
+def test_clean(test_doc):
+    """The the _clean() method."""
+    doc = {'permanent_key': 'stay!',
+           'test_key': test_doc}
+
+    qp.MongoQuery._clean(doc)
+
+    assert len(doc) == 1
+    assert 'permanent_key' in doc
+    assert 'test_key' not in doc
+
+
+def test_filterBy(query, role, filter_type, value):
+    """Test the filterBy() method."""
+    if role is None or filter_type not in FILTER_TYPES:
         with pytest.raises(ValueError):
-            query.filterByValue(role, value)
-    else:
-        query.filterByValue(role, value)
+            query.filterBy(role, filter_type, value)
+        return
+
+    query.filterBy(role, filter_type, value)
+
+    if filter_type == 'value':
         assert query.query[role] == value
+    elif filter_type == 'regex':
+        assert query.query[role] == {'$regex': value, '$options': 'i'}
+    elif filter_type == 'range_min':
+        assert query.query[role]['$gte'] == value
+    elif filter_type == 'range_max':
+        assert query.query[role]['$lte'] == value
 
 
-def test_getFilterValue(query, role, value):
-    """Test the getFilterValue() method."""
+def test_getFilter(query, role, filter_type, value):
+    """Test the getFilter() method."""
+    if role is None or filter_type not in FILTER_TYPES:
+        with pytest.raises(ValueError):
+             query.getFilter(role, filter_type)
+        return
+
+    # Check that calling getFilter on an unset filter returns None
+    assert query.getFilter(role, filter_type) is None
+
+    # Set filter and then check using getFilter
+    query.filterBy(role, filter_type, value)
+    assert query.getFilter(role, filter_type) == value
+
+
+def test_deleteFilter(query, role, filter_type, value):
+    """Test the deleteFilter() method."""
     if role is None:
         with pytest.raises(ValueError):
-            query.getFilterValue(role)
-
-    elif role == INVALID_ROLE:
-        assert query.getFilterValue(role) is None
-
+            query.deleteFilter(role)
+    elif filter_type not in FILTER_TYPES:
+        query.deleteFilter(role)
     else:
-        query.filterByValue(role, value)
-        assert query.getFilterValue(role) == value
+        query.filterBy(role, filter_type, value)
+        query.deleteFilter(role)
 
+        assert role not in query.query
 
-def test_filterByRegex(query, role, value):
-    """Test the filterByRegex() method."""
+@pytest.mark.parametrize('order', [qtc.Qt.AscendingOrder, qtc.Qt.DescendingOrder, 5, -5])
+def test_sortBy(query, role, order):
+    """Test the sortBy() method."""
+    if order not in [qtc.Qt.AscendingOrder, qtc.Qt.DescendingOrder]:
+        with pytest.raises(ValueError):
+            query.sortBy(role, order)
+    else:
+        query.sortBy(role, order)
+
+        if order == qtc.Qt.AscendingOrder:
+            assert query.sort[role] == pymongo.ASCENDING
+        elif order == qtc.Qt.DescendingOrder:
+            assert query.sort[role] == pymongo.DESCENDING
+
+@pytest.mark.parametrize('order', [qtc.Qt.AscendingOrder, qtc.Qt.DescendingOrder])
+def test_getSortOrder(query, role, order):
+    """Test the getSortOrder() method."""
     if role is None:
         with pytest.raises(ValueError):
-            query.filterByRegex(role, value)
-    elif value is None:
-        query.filterByRegex(role, 'some regex')
-        query.filterByRegex(role, None)
-        with pytest.raises(KeyError):
-            query.query[role]
+            query.getSortOrder(role)
+    elif role is INVALID_ROLE:
+        assert query.getSortOrder(role) is None
     else:
-        query.filterByRegex(role, value)
-        assert query.query[role]['$regex'] == value
-
-
-def test_getFilterRegex(query, role, value):
-    """Test the getFilterRegex() method."""
-    if role is None:
-        with pytest.raises(ValueError):
-            query.getFilterRegex(role)
-    elif role == INVALID_ROLE:
-        assert query.getFilterRegex(role) is None
-    else:
-        query.filterByRegex(role, value)
-        assert query.getFilterRegex(role) == value
-
-
-def test_setFilterRangeMin(query, role, value):
-    """Test the setFilterRangeMin() method."""
-    if role is None:
-        with pytest.raises(ValueError):
-            query.setFilterRangeMin(role, value)
-    elif value is None:
-        query.setFilterRangeMin(role, 'some value')
-        query.setFilterRangeMin(role, None)
-        with pytest.raises(KeyError):
-            query.query[role]['$gte']
-    else:
-        query.setFilterRangeMin(role, value)
-        assert query.query[role]['$gte']
+        query.sortBy(role, order)
+        assert query.getSortOrder(role) == order
