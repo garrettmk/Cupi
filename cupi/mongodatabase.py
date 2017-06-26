@@ -300,11 +300,11 @@ class MongoDatabase(qtc.QObject):
     def _objectmodel_updates(model):
         """Build an update document from an ObjectModel."""
         response = {'$set': {}, '$unset': {}}
-        original = model.original
+        original = model.original_document
 
         # If the new list is shorter than the original, just re-write the list
         if len(model) < len(original):
-            response['$set'].update({'': model.document})
+            response['$set'].update({'': model.current_document})
 
         # If the new list is the same length or longer than the original, check each item
         else:
@@ -324,7 +324,7 @@ class MongoDatabase(qtc.QObject):
 
                 # This item was not in the original at this index, so write the whole object document
                 else:
-                    response['$set'].update({str(idx): obj.document})
+                    response['$set'].update({str(idx): obj.current_document})
 
         # Clean up the response document
         if not response['$set']:
@@ -452,7 +452,7 @@ class MongoDatabase(qtc.QObject):
         collection = self._db[_type.__collection__].with_options(codec_options=CodecOptions(tz_aware=True,
                                                                                             tzinfo=get_localzone()))
 
-        query, sort = (query.query.document, query.sort.document) if query is not None else ({}, {})
+        query, sort = (query.query.current_document, query.sort.current_document) if query is not None else ({}, {})
         query['_type'] = {'$in': [_type.__name__] + _type._all_subclass_names()}
 
         doc = collection.find_one(query, modifiers={'$orderby': sort})
@@ -469,7 +469,7 @@ class MongoDatabase(qtc.QObject):
         collection = self._db[_type.__collection__].with_options(codec_options=CodecOptions(tz_aware=True,
                                                                                             tzinfo=get_localzone()))
 
-        query, sort = (query.query.document, query.sort.document) if query is not None else ({}, {})
+        query, sort = (query.query.current_document, query.sort.current_document) if query is not None else ({}, {})
         query['_type'] = {'$in': [_type.__name__] + _type._all_subclass_names()}
 
         cursor = collection.find(query, modifiers={'$orderby': sort}, no_cursor_timeout=True)
@@ -502,7 +502,7 @@ class MongoDatabase(qtc.QObject):
 
             collection.update({'_id': obj['_id']}, updates, upsert=True)
         elif _id is None:
-            doc = MongoDatabase.escaped(obj.document)
+            doc = MongoDatabase.escaped(obj.current_document)
             result = collection.insert_one(doc)
             obj['_id'] = result.inserted_id
 
@@ -541,7 +541,7 @@ class MongoDatabase(qtc.QObject):
                     updates = MongoDatabase._updates(obj)
                     bulk.find({'_id': obj['_id']}).upsert().update(updates)
                 else:
-                    doc = MongoDatabase.escaped(obj.document)
+                    doc = MongoDatabase.escaped(obj.current_document)
                     bulk.insert(doc)
                     obj.id = doc['_id']
 

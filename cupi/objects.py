@@ -103,17 +103,16 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
         super().__init__(parent=kwargs.pop('parent', None))
 
         # Initialize members
-        self._map = dict(*args, **kwargs)
-        for val in self._map.values():
+        self._original = dict(*args, **kwargs)
+        self._current = dict(self._original)
+        for val in self._current.values():
             self._connect(val)
 
-        self._mods = dict()
-        self._dels = set()
         self._modified = False
 
-        _type = type(self)
-        if '_type' not in self and _type is not MapObject:
-            self._map['_type'] = _type.__name__
+        my_type = type(self)
+        if '_type' not in self and my_type is not MapObject:
+            self._current['_type'] = my_type.__name__
 
         # Initialize properties
         for prop, value in prop_kwargs.items():
@@ -180,33 +179,23 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
 
     def __getitem__(self, key):
         """Retrieve value from the map. KeyError is raised if the provided key does not exist in the map."""
-        if key in self._mods:
-            return self._mods[key]
-        elif key in self._dels:
-            raise KeyError(key)
-        elif key in self._map:
-            return self._map[key]
-        else:
-            raise KeyError(key)
+        return self._current[key]
 
     def __setitem__(self, key, value):
         """Assign a value to a key."""
         was_modified = self._modified
+        self._modified = None
 
-        if key not in self._map \
-                or not self._map[key] is value:
-            # It's a new key, or a modification of the original key's value
-            self._disconnect(self._map.get(key, None))
-            self._disconnect(self._mods.get(key, None))
-            self._mods[key] = value
+        # It's a brand-new key
+        if key not in self._current:
+            self._current[key] = value
+        # It's a modification of an existing key
         else:
-            # We are setting a key back to its original value
-            self._disconnect(self._mods.pop(key, None))
+            current_value = self._current.get(key, None)
+            self._disconnect(current_value)
+            self._current[key] = value
 
         self._connect(value)
-
-        # If this key was marked as deleted, clear it
-        self._dels.discard(key)
 
         # If modification status changed, emit the signal
         if self.modified != was_modified:
@@ -215,43 +204,34 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
     def __delitem__(self, key):
         """Delete a key-value pair."""
         was_modified = self._modified
+        self._modified = None
 
-        if key in self._dels:
-            raise KeyError(key)
-        elif key in self._mods:
-            self._disconnect(self._mods.pop(key, None))
-        elif key in self._map:
-            self._disconnect(self._map[key])
-        else:
-            raise KeyError(key)
-
-        self._dels.add(key)
+        current_value = self.get(key, None)
+        self._disconnect(current_value)
+        del self._current[key]
 
         if self.modified != was_modified:
             self.modifiedChanged.emit()
 
     def __iter__(self):
         """Return an iterator for the map's keys."""
-        return itertools.chain(filter(lambda k: k not in self._dels, self._map.keys()),
-                               filter(lambda k: k not in self._map, self._mods.keys()))
+        return iter(self._current)
 
     def __len__(self):
         """Return the number of keys in the map."""
-        return sum(1 for k in iter(self))
+        return len(self._current)
 
     def keys(self):
         """Return an iterator of the map's keys."""
-        return iter(self)
+        return self._current.keys()
 
     def items(self):
         """Yields the key-value pairs in the document."""
-        for key in self:
-            yield key, self[key]
+        return self._current.items()
 
     def values(self):
         """Yields the values in the document."""
-        for key in self:
-            yield self[key]
+        return self._current.values()
 
     def update(self, *args, **kwargs):
         """Checks if the first argument is a QJSValue before passing on to super()."""
@@ -260,36 +240,14 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
 
         super().update(*args, **kwargs)
 
-    @property
-    def map(self):
-        """Returns a read-only view (a MappingProxyType) of the last 'saved' version of the map."""
-        return types.MappingProxyType(self._map)
-
-    @property
-    def mods(self):
-        """Returns a read-only view (a MappingProxyType) of document's unsaved modifications."""
-        return types.MappingProxyType(self._mods)
-
-    @property
-    def dels(self):
-        """Returns a tuple of keys that have been deleted from the document since the last save."""
-        return tuple(self._dels)
-
     modifiedChanged = qtc.pyqtSignal()
     @qtc.pyqtProperty(bool, notify=modifiedChanged)
     def modified(self):
         """True if the document has been modified since the last save."""
-        if self._mods or self._dels:
-            self._modified = True
-            return True
+        if self._modified is None:
+            self._modified = self._current != self._original
 
-        for item in self.values():
-            if isinstance(item, (MapObject, ObjectModel)) and item.modified:
-                self._modified = True
-                return True
-
-        self._modified = False
-        return False
+        return self._modified
 
     @qtc.pyqtSlot()
     def apply(self):
@@ -297,16 +255,11 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
         was_modified = self._modified
         self._modified = None
 
-        new = {}
         for key, item in self.items():
             if isinstance(item, (MapObject, ObjectModel)):
                 item.apply()
 
-            new[key] = item
-
-        self._map = new
-        self._mods.clear()
-        self._dels.clear()
+        self._original = dict(self._current)
 
         if self.modified != was_modified:
             self.modifiedChanged.emit()
@@ -317,37 +270,44 @@ class MapObject(qtc.QObject, collections.MutableMapping, metaclass=MapObjectMeta
         was_modified = self._modified
         self._modified = None
 
-        for key, value in self._map.items():
+        for key, value in self.items():
             if isinstance(value, (MapObject, ObjectModel)):
                 value.revert()
 
-        self._mods.clear()
-        self._dels.clear()
+        self._current = dict(self._original)
 
         if self.modified != was_modified:
             self.modifiedChanged.emit()
 
     @property
-    def document(self):
+    def current_document(self):
         response = {}
 
         for key, value in self.items():
             if isinstance(value, (MapObject, ObjectModel)):
-                response[key] = value.document
+                response[key] = value.current_document
             else:
                 response[key] = value
 
         return response
 
     @property
-    def original(self):
+    def original_document(self):
         """Return the original version of the document and sub-documents."""
-        return types.MappingProxyType(self._map)
+        response = {}
+
+        for key, value in self._original.items():
+            if isinstance(value, (MapObject, ObjectModel)):
+                value = value.original_document
+
+            response[key] = value
+
+        return response
 
     @qtc.pyqtSlot(result=str)
     def getDocumentText(self):
         """Returns the object's document property as a formatted block of text."""
-        return json_dumps(self.document, indent=4)
+        return json_dumps(self.current_document, indent=4)
 
     idChanged = qtc.pyqtSignal()
     @qtc.pyqtProperty(qtc.QVariant, notify=idChanged)
@@ -886,12 +846,12 @@ class ObjectModel(qtc.QAbstractItemModel, collections.MutableSequence, metaclass
             self.modifiedChanged.emit()
 
     @property
-    def document(self):
-        return [o.document for o in self._current]
+    def current_document(self):
+        return [o.current_document for o in self._current]
 
     @property
-    def original(self):
-        return list(self._original)
+    def original_document(self):
+        return [o.original_document for o in self._original]
 
     @property
     def deleted(self):

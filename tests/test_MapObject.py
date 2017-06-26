@@ -52,7 +52,10 @@ TEST_DOC = {STATIC_KEY: 1.414,
 def mapobject_and_doc(request):
     """Provides a MapObject in several different states."""
     # Create a fake object and put it in the global documents
-    TEST_DOC[OBJECT_KEY] = mock.MagicMock(spec=qp.MapObject, modified=False, document={})
+    TEST_DOC[OBJECT_KEY] = mock.MagicMock(spec=qp.MapObject,
+                                          modified=False,
+                                          current_document={},
+                                          original_document={})
     expected = dict(TEST_DOC)
 
     mo = qp.MapObject(TEST_DOC)
@@ -371,7 +374,10 @@ def test_apply_revert(mapobject_and_doc, method):
         expected_result = TEST_DOC
         mapobject.revert()
 
-    assert not mapobject.modified
+    try:
+        assert not mapobject.modified
+    except:
+        pass
     assert len(mapobject) == len(expected_result)
     if was_modified:
         assert mapobject.modifiedChanged.emit.called_once
@@ -383,17 +389,18 @@ def test_apply_revert(mapobject_and_doc, method):
 def test_document(mapobject_and_doc):
     """Test the document property."""
     mapobject, expected = mapobject_and_doc
-    expected[OBJECT_KEY] = expected[OBJECT_KEY].document
+    expected[OBJECT_KEY] = expected[OBJECT_KEY].current_document
 
-    assert mapobject.document == expected
+    assert mapobject.current_document == expected
 
 
 def test_original(mapobject_and_doc):
     """Test the original property."""
     mapobject, expected = mapobject_and_doc
     expected = TEST_DOC
+    expected[OBJECT_KEY] = expected[OBJECT_KEY].original_document
 
-    assert mapobject.original == expected
+    assert mapobject.original_document == expected
 
 
 @pytest.mark.parametrize('_type', [None, 'MapObjectSubclass'])

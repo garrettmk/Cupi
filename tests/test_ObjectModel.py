@@ -424,7 +424,7 @@ def test_document(model, model_objects):
     expected = [{'_type': 'GenericObject',
                  'generic_property': 'omg'} for obj in model_objects]
 
-    doc = model.document
+    doc = model.current_document
     assert doc == expected
 
 
